@@ -1,0 +1,300 @@
+function update_events_calendar() {
+
+  const tournaments_raw = SHT_POOL_TOURNAMENTS.getDataRange().getValues();
+    const tour_values = tournaments_raw.slice(1);
+    const tour_flat = tour_values.flat();
+
+// __________________________________________________________________
+
+  const endpoint = `${SOURCEURL_ESPN}/v2/sports/${SPORT}/leagues/all/calendar/ondays`;
+
+  console.log(`endpoint: ${endpoint}`)
+
+  const calendar_raw = fetch_url(endpoint)
+  const cal_sections = calendar_raw.sections; 
+
+  const sample = cal_sections.slice(0,10)
+
+  const cal_data = []
+  for (const event of sample) {
+    cal_data.push([
+      event.event.$ref ?? '',
+    ]);
+  }
+
+  const flat_cal_Data = cal_data.flat()
+  const fil_cal_data = flat_cal_Data.filter(obj => !obj.includes("sga"))
+
+  console.log(`fil_cal_data: ${fil_cal_data.length}`)
+
+// __________________________________________________________________
+
+  const event_ids = SHT_HIST_EVT_ID.getDataRange().getValues();
+
+  const event_headers = event_ids[0];
+  const event_values = event_ids;
+
+  const f_event_id = add_keys(event_values,event_headers)
+
+  const fil_event_id = f_event_id.filter(obj => obj.url_event.toString().trim() !== '' && !obj.url_event.toLowerCase().includes("sga")&& obj.year === 2026);
+
+  const event_id_url = [] 
+  for (const event of fil_event_id) {
+    event_id_url.push([
+      event.url_event
+    ]);
+  }
+
+  const flat_event_id_data = event_id_url.flat()
+  console.log(`flat_event_id_data: ${flat_event_id_data.length}`)
+
+  let all_urls = []
+  all_urls = [...new Set([...flat_event_id_data, ...fil_cal_data])]
+
+  console.log(`all_urls: ${all_urls.length}`)
+  
+  const batch_size = 50
+  const fetched_data =  batchfetch_v2(all_urls,batch_size)
+  const schedule_data = parseData_event_calendar(fetched_data,tour_flat)
+ 
+  const headers = ['isPoolEvent',	'id_lookup',	'id_tournament',	'id_event',	'year',	'tournamentName',	'league',	'startDate',	'endDate',	'purse',	'eventStatus', 'id_athlete_defChamp',	'defChamp_fullName',	'id_athlete_winner',	'winner_fullName','id_venue', 'venueName',	'location',	'numCompetitors',	'url_event']
+
+  SHT_CALENDAR.clearContents();
+   global.setValues(schedule_data,SHT_CALENDAR,headers)
+}
+
+// ------------------------------------------------------
+
+function add_keys(dataset,headers) {
+  const keys_data = dataset.map(row => {
+    let obj = {};
+    headers.forEach((header, index) => {
+      // Convert date strings to Date objects for easy comparison
+      if (header.toLowerCase().includes('date')) {
+        obj[header] = row[index] ? new Date(row[index]) : null;
+      } else {
+        obj[header] = row[index];
+      }
+    });
+    return obj;
+  });
+
+  return keys_data
+}
+
+function extractChampionInfo(championData){
+  let champ_info;
+  if (!championData) {
+    champ_info = { fullName: '', id: '' };
+    return champ_info;
+  } else if (championData.athlete) {
+    champ_info = { fullName: championData.athlete.fullName || '', id: championData.athlete.id || '' };
+    return champ_info;
+  } else if (championData.roster && championData.roster.entries && championData.roster.entries.length > 0) {
+    // Concatenate player IDs for roster
+    const ids = championData.roster.entries.map(e => e.playerId).join(', ');
+    champ_info = {fullName: '', id: ids };
+    return champ_info;
+  } else { champ_info = {fullName: '', id: '' }};
+
+  return champ_info
+
+};
+
+function fetch_url(endpoint) {
+  // --- 1. Fetch Data ---
+  let data;
+  try {
+    const response = UrlFetchApp.fetch(endpoint, { muteHttpExceptions: true });
+    if (response.getResponseCode() !== 200) {
+      throw new Error(`HTTP Error ${response.getResponseCode()}`);
+    }
+    data = JSON.parse(response.getContentText());
+  } catch (e) {
+    console.log(`Failed to fetch DataGolf field updates: ${e.message}`);
+    return;
+  }
+  return data
+}
+
+function batchfetch_v2(sourceDataArray,batch_size) {
+  const totalRequests = sourceDataArray.length;
+  const allResponses = [];
+
+  //try {
+    for (let batchStart = 0; batchStart < totalRequests; batchStart += batch_size) {
+      const batchEnd = Math.min(batchStart + batch_size, totalRequests);
+      const currentBatch = sourceDataArray.slice(batchStart, batchEnd);
+
+      console.log(`Processing batch ${Math.floor(batchStart / batch_size) + 1} (${batchStart + 1} to ${batchEnd} of ${totalRequests})...`);
+
+      // 1. Create fetch requests
+      const fetchRequests = currentBatch.map(item => ({
+        url: item,
+        method: 'GET',
+        muteHttpExceptions: true
+      }));
+
+      // 2. Perform concurrent HTTP requests for the current batch
+      const responses = UrlFetchApp.fetchAll(fetchRequests);
+
+      // 3. Merge responses back with original source data
+      for (let i = 0; i < responses.length; i++) {
+        const response = responses[i];
+        const source = currentBatch[i];
+
+        if (response.getResponseCode() !== 200) {
+          //const errorMsg = `Fetch failed. Code: ${response.getResponseCode()}. Message: ${response.getContentText().substring(0, 100)}`;
+          //console.error(`Fetch error for ${source.url_event}: ${errorMsg}`);
+          continue; // Skip this item
+        }
+
+        const mergedObject = {
+          source: source, // Original source data
+          response: response   // The API response object
+        };
+        allResponses.push(mergedObject);
+      }
+    }
+  //} catch (e) {
+    //const errorMsg = `ERROR during batch fetch: ${e}`;
+    //console.error(errorMsg);
+  //}
+
+  return allResponses;
+}
+
+function parseData_event_calendar(dataArray, tour_flat) {
+  const finalDataset = [];
+
+  if (!dataArray || dataArray.length === 0) {
+    return [];
+  }
+
+  for (let i = 0; i < dataArray.length; i++) {
+    const item = dataArray[i];
+    const sourceRow = item.source;
+    const response = item.response;
+
+    let data;
+    try {
+      data = JSON.parse(response.getContentText());
+    } catch (e) {
+      const errorMsg = `JSON Parsing error: ${e.toString()}`;
+      console.error(`Error parsing JSON for ${sourceRow.url_event}: ${errorMsg}`);
+      continue;
+    }
+
+    const course = data.courses[0] ? data.courses[0] : {};
+    const status = data.status ? data.status.type : {};
+
+    const url_tour = data.tournament.$ref || '';
+    const tournament_parsedData = parseUrl(url_tour);
+    const league = tournament_parsedData[0] || '';
+    const id_tournament = tournament_parsedData[1] || '';
+      const str_id_tour = id_tournament.toString();
+    const year = tournament_parsedData[2] || '';
+    const id_event = safeGet(data, 'id') || '';
+    const isPoolEvent = tour_flat.includes(str_id_tour);
+    const id_lookup = year +'_'+ id_tournament || '';
+    const tournamentName = safeGet(data, 'name') || '';
+    const startDate = safeGet(data, 'date') || '';
+      const startDate_mt = global.convertUTCtoET(startDate)
+    const endDate = safeGet(data, 'endDate') || '';
+      const endDate_mt = global.convertUTCtoET(endDate)
+    const purse = safeGet(data, 'purse') || '';
+    const eventStatus = safeGet(status, 'name') || '';
+    //const eventStatusDesc = safeGet(status, 'description') || '';
+
+    const defChamp = extractChampionInfo(data.defendingChampion);
+    const winner = extractChampionInfo(data.winner);
+
+      // Defending Champion
+    const defChamp_id =   defChamp.id || ''; // id_athlete_defChamp
+    const defChamp_fullName =   defChamp.fullName || ''; // defChamp_fullName
+
+      // Winner
+    const winner_id =  winner.id || ''; // id_athlete_winner
+    const winner_fullName =   winner.fullName || ''; // winner_fullName
+
+    //const url_venue = safeGet(course, 'venue.$ref') || ""; // url_venues
+    const id_venue = safeGet(course, 'id'); // id_venue
+    const venueName = safeGet(course, 'name') || ''; // venueName
+    
+    let location = '';
+    const address = course.address;
+    if (address) {
+      const parts = [address.city, address.state, address.country].filter(Boolean);
+      if (parts.length > 0) {
+        location = parts.join(', ');
+      }
+    }
+    const numCompetitors = data.competitions[0]?.competitors.length || 0; // numCompetitors
+    const url_event = safeGet(data, '$ref') || ''; // url_event
+
+    //console.log(`Fetch error for ${source.url_event}: ${errorMsg}`)
+      
+    //schedule_data: 12,poolEvent?,undefined_3354,3354,401811927,2026,The Sentry,pga,2026-01-08T05:00Z,2026-01-11T05:00Z,purse,STATUS_CANCELED,Canceled,5860,Hideki Matsuyama,winner,winner,urlvenue,idvenue,venueName,Location,??competitors,http://sports.core.api.espn.com/v2/sports/golf/leagues/pga/events/401811927?lang=en&region=us
+    
+
+    // --- Build Row Array based on CONFIG_EVENTS.HEADERS ---
+    const rowData = [
+      isPoolEvent,
+      id_lookup,
+      id_tournament,
+      id_event, 
+      year, 
+      tournamentName,
+      league,
+      startDate_mt, 
+      endDate_mt, 
+      purse,
+      eventStatus, 
+      //eventStatusDesc, 
+      defChamp_id, 
+      defChamp_fullName, 
+      winner_id, 
+      winner_fullName,
+      //url_venue,
+      id_venue, 
+      venueName, 
+      location,
+      numCompetitors, 
+      url_event, 
+    ];
+
+    finalDataset.push(rowData);
+  }
+
+  return finalDataset;
+}
+
+function parseUrl(url) {
+    
+    // Initialize properties in case parsing fails
+    league = '';
+    tournamentId = '';
+    year = '';
+    
+    const parsedData = []
+
+        const queryParamRegex = /\?.*$/;
+        let modifiedUrl = url.replace(queryParamRegex, '');
+
+        // --- END: URL CLEANUP AND MODIFICATION ---
+        
+        // Execute the capture regex against the MODIFIED URL string
+        const captureRegex = /leagues\/([^/]+)\/tournaments\/(\d+)\/seasons\/(\d+)/i;
+        const match = captureRegex.exec(modifiedUrl);
+
+        if (match && match.length >= 3) {
+            league = match[1].toLowerCase(); 
+            tournamentId = parseInt(match[2], 10); 
+            year = parseInt(match[3], 10);
+            parsedData.push(league,tournamentId,year)
+        } else {
+            Logger.log(`Could not fully parse league/tournament/season from MODIFIED URL: ${modifiedUrl}`);
+        }
+
+  return parsedData;
+}
