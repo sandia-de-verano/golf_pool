@@ -1,0 +1,566 @@
+function get_live_data_again() {
+  // --- 1. Get Data ---
+  const currentEvent = getCurrentEvent(SHT_LOOKUPTOURNAMENT);
+    const id_tournament = currentEvent.id_tournament
+    const id_event = currentEvent.id_event
+    const year = currentEvent.year
+
+  const player_data_raw = global.readSheetData(SHT_PLAYERDATA);
+
+  const prj_earn_table_raw = SHT_PROJ_EARNINGS_TABLE.getRange(1,8,SHT_PROJ_EARNINGS_TABLE.getLastRow(),2).getValues();
+    const prj_earn_table_values = prj_earn_table_raw.slice(1);
+    const prj_earn_table_headers = ['order','projected_earnings'];
+
+  let prj_earn_table
+    prj_earn_table = add_keys(prj_earn_table_values,prj_earn_table_headers)
+    prj_earn_table = prj_earn_table.filter(obj => obj.order.toString().trim() !== '');
+
+  const prizeMap = prj_earn_table.reduce((acc, curr) => {
+    acc[curr.order] = curr.projected_earnings;
+    return acc;
+  }, {});
+
+  const live_tournament_raw = live_tournament();
+    console.log(live_tournament_raw[0])
+
+  const field_updates = dg_get_field_updates_live()
+      const r1_times = []
+      for (const row of field_updates) {
+        r1_times.push(
+          row.r1_teetime,
+        )
+      }
+      const r1_times_utc = r1_times.map(val => new Date(val).getTime());
+      const in_play_start_time = Math.min(...r1_times_utc);
+
+  const in_play_raw = get_in_play(player_data_raw,in_play_start_time)
+    in_play_raw.sort((a, b) => a.current_score - b.current_score);
+  // console.log(in_play_raw[0])
+
+  //merge DG Data
+  const merged_data_field = merge_live_data_dg_id(player_data_raw, field_updates)
+    //console.log(merged_data_field[0])
+  const merged_data_player_in_play = merge_live_data_dg_id(merged_data_field, in_play_raw)
+    //console.log(merged_data_field[0])
+  const merged_data_live = merge_live_data_dg_id(merged_data_player_in_play, live_tournament_raw)
+    //console.log(merged_data_field[0])
+  const merged_data_earn = calculateGolfWinnings(merged_data_live, prizeMap)
+
+  const filter_data = merged_data_earn.filter(obj => obj.make_cut > .5)
+
+  const targetKey = 'current_score'
+
+  const total = merged_data_earn.reduce((sum, obj) => sum + (obj[targetKey] || 0), 0);
+  const average = total / merged_data_earn.length;
+
+  let averageRow = {
+    id_tournament: id_tournament,	
+    id_event: id_event,	
+    year: year,	
+    id_athlete_dg: "x0001",	
+    id_athlete_espn: "x0001",
+    'fullName': "PREDICTED CUT",
+    [targetKey]: average 
+  };
+
+  const total_dg = filter_data.reduce((sum, obj) => sum + (obj[targetKey] || 0), 0);
+  const average_dg = total_dg / merged_data_earn.length;
+
+  let averageRow_dg = {
+    id_tournament: id_tournament,	
+    id_event: id_event,	
+    year: year,	
+    id_athlete_dg: "x0002",	
+    id_athlete_espn: "x0002",
+    'fullName': "DATA GOLF CUT",
+    'make_cut': .5,
+    [targetKey]: average_dg 
+  };
+
+  // 4. Push the new object into the array
+  merged_data_earn.push(averageRow,averageRow_dg);
+
+const fieldsForLookup = [
+      'id_tournament',
+      'id_event',
+      'id_event_dg',
+      'year',
+      'id_athlete_dg',
+      'id_athlete_espn',
+      'fullName',
+      'isAmateur',
+      'adjusted_rank',
+      'current_round',
+      'current_position',
+      'current_score',
+      'thru',
+      'today',
+      'r1_score',
+      'r2_score',
+      'r3_score',
+      'r4_score',
+      'r1_teetime',
+      'r2_teetime',
+      'r3_teetime',
+      'r4_teetime',
+      'early_late',
+      'start_hole',
+      'total_points',
+      'gained_points',
+      'lost_points',
+      'average_points',
+      'total_events',
+      'make_cut',
+      'top_20',
+      'top_10',
+      'top_5',
+      'win',
+      'players_final_pred',
+      'predicted_round_score',
+      'earnings', // remove in here
+      'projected_earnings',
+      'distance',
+      'accuracy',
+      'sg_app',
+      'sg_arg',
+      'sg_ott',
+      'sg_putt',
+      'sg_t2g',
+      'sg_bs',
+      'sg_total',
+      'gir',
+      'prox_fw', 
+      'prox_rgh',
+      'scrambling',
+      'great_shots',
+      'poor_shots',
+      'playerSelection_name',
+      'last_updated'
+  ];
+
+  const finalDataset = createFinalOutput(merged_data_earn,fieldsForLookup)
+
+  const finalDataset_time_stamp = finalDataset.map(item => ({
+    ...item, // This "spreads" the existing keys (name, earnings, etc.)
+    last_updated: new Date().toLocaleString() // Adds the new one
+  }));
+
+    finalDataset_time_stamp.sort((a, b) => a.adjusted_rank - b.adjusted_rank);
+    finalDataset_time_stamp.sort((a, b) => a.current_score - b.current_score);
+
+  SHT_PLAYERLIVE.clearContents();
+  global.setValues_keys(finalDataset_time_stamp,SHT_PLAYERLIVE)
+
+  update_pool_leaderboard()
+
+}
+
+// ----------------------------------------------------------------------------------
+function get_in_play(player_data_key,in_play_start_time) {
+  const current_time = Date.now();
+
+  const headers = ['id_athlete_dg','current_round',"r1_score", "r2_score", "r3_score", "r4_score", "current_position", "current_score", "end_hole", "make_cut", "round", "thru", "today", "top_10", "top_20", "top_5", "win",'earnings','last_updated']
+ 
+  let dataset = [];
+
+  if (in_play_start_time <= current_time) {
+    const endpoint = `${SOURCEURL_DG}${ENDPT_PRD_IN_PLAY}?${FILEFORMAT}${API_DG}`;
+    
+    console.log(endpoint)
+
+      // --- 1. Fetch Data ---
+    let data;
+    try {
+      const response = UrlFetchApp.fetch(endpoint, { muteHttpExceptions: true });
+      if (response.getResponseCode() !== 200) {
+        throw new Error(`HTTP Error ${response.getResponseCode()}`);
+      }
+      data = JSON.parse(response.getContentText());
+    } catch (e) {
+      console.log(`Failed to fetch DataGolf rankings: ${e.message}`);
+      return;
+    }
+
+    // --- 2. Process Data ---
+    const in_play = data.data || [];
+    const earnings = 0
+
+    for (const player of in_play) {
+      dataset.push([
+        player.dg_id,
+        data.info.current_round ?? '',
+        player.R1,
+        player.R2,
+        player.R3,
+        player.R4,
+        player.current_pos,
+        player.current_score,
+        player.end_hole,
+        player.make_cut,
+        player.round,
+        player.thru,
+        player.today,
+        player.top_10,
+        player.top_20,
+        player.top_5,
+        player.win,
+        earnings,
+        data.info.last_update,
+      ]);
+    }
+
+    // --- 3. Batch Write Results ---
+    
+    const outputArray = dataset.map(row => {
+      let obj = {};
+      headers.forEach((header, index) => {
+        // Convert date strings to Date objects for easy comparison
+        if (header.toLowerCase().includes('date')) {
+          obj[header] = row[index] ? new Date(row[index]) : null;
+        } else {
+          obj[header] = row[index];
+        }
+      });
+      return obj;
+    });
+
+    return outputArray
+  } else {
+    for (const player of player_data_key) {
+      dataset.push([
+        player.id_athlete_dg,
+        '', // current round
+        '', // r1
+        '', // r2
+        '', // r3
+        '', //r4
+        '', // current pos
+        0, // current_score
+        '', //end_hole
+        '', //make_cut
+        '',
+        '',
+        '',
+        '',
+        '',
+        '',
+        '',
+        '',
+      ]);
+    }
+
+    // --- 3. Batch Write Results ---
+    
+    const outputArray = dataset.map(row => {
+      let obj = {};
+      headers.forEach((header, index) => {
+        // Convert date strings to Date objects for easy comparison
+        if (header.toLowerCase().includes('date')) {
+          obj[header] = row[index] ? new Date(row[index]) : null;
+        } else {
+          obj[header] = row[index];
+        }
+      });
+      return obj;
+    });
+
+    return outputArray
+  }
+
+}
+
+// ----------------------------------------------------------------------------------
+function live_tournament(){
+  const headers = ["id_athlete_dg",
+  'sg_putt',
+  'sg_arg',
+  'sg_app',
+  'sg_ott',
+  'sg_t2g',
+  'sg_bs',
+  'sg_total',
+  'distance',
+  'accuracy',
+  'gir',
+  'prox_fw', 'prox_rgh','scrambling',
+  'great_shots','poor_shots']
+
+  const api_params = {
+    stats: "sg_putt,sg_arg,sg_app,sg_ott,sg_t2g,sg_bs,sg_total,distance,accuracy,gir,prox_fw, prox_rgh,scrambling,great_shots,poor_shots",
+    round: 'event_avg',
+    display: 'rank'
+  }
+
+  const queryParams = Object.entries(api_params)
+    .map(([key, value]) => `${key}=${value}`)
+    .join('&');
+
+  const endpoint = `${SOURCEURL_DG}${ENDPT_PRD_LIVE_TOUR}?${queryParams}&${FILEFORMAT}${API_DG}`;
+
+  console.log(endpoint)
+
+    // --- 1. Fetch Data ---
+  let data;
+  try {
+    const response = UrlFetchApp.fetch(endpoint, { muteHttpExceptions: true });
+    if (response.getResponseCode() !== 200) {
+      throw new Error(`HTTP Error ${response.getResponseCode()}`);
+    }
+    data = JSON.parse(response.getContentText());
+  } catch (e) {
+    console.log(`Failed to fetch DataGolf rankings: ${e.message}`);
+    return;
+  }
+
+  // --- 2. Process Data ---
+  const dataset = [];
+  const live_tour = data.live_stats || [];
+
+  for (const player of live_tour) {
+    dataset.push([
+      player.dg_id ?? '',
+      player.sg_app ?? '',
+      player.sg_arg ?? '',
+      player.sg_ott ?? '',
+      player.sg_putt ?? '',
+      player.sg_t2g ?? '',
+      player.sg_total ?? '',
+
+      player.sg_bs ?? '',
+      player.distance ?? '',
+      player.accuracy ?? '',
+      player.gir ?? '',
+      player.prox_fw ?? '',
+      player.prox_rgh ?? '',
+      player.scrambling ?? '',
+      player.great_shots ?? '',
+      player.poor_shots ?? '',
+
+
+    ]);
+  }
+
+  // --- 3. Batch Write Results ---
+  
+  const outputArray = dataset.map(row => {
+    let obj = {};
+    headers.forEach((header, index) => {
+      // Convert date strings to Date objects for easy comparison
+      if (header.toLowerCase().includes('date') || header.toLowerCase().includes('time')) {
+        obj[header] = row[index] ? new Date(row[index]) : null;
+      } else {
+        obj[header] = row[index];
+      }
+    });
+    return obj;
+  });
+
+  return outputArray
+}
+
+// ----------------------------------------------------------------------------------
+function dg_get_field_updates_live() {
+
+  const endpoint = `${SOURCEURL_DG}${ENDPT_FIELD_UPDATES}?${FILEFORMAT}${API_DG}`;
+
+  console.log(endpoint)
+
+  // --- 1. Fetch Data ---
+  let data;
+  try {
+    const response = UrlFetchApp.fetch(endpoint, { muteHttpExceptions: true });
+    if (response.getResponseCode() !== 200) {
+      throw new Error(`HTTP Error ${response.getResponseCode()}`);
+    }
+    data = JSON.parse(response.getContentText());
+  } catch (e) {
+    console.log(`Failed to fetch DataGolf field updates: ${e.message}`);
+    return;
+  }
+
+  const dataset = []
+
+  const field = data.field
+
+  // --- 2. Process Data ---
+
+  for (const player of field) {
+    dataset.push([
+      player.dg_id ?? '',
+      player.early_late ?? '',
+      player.r1_teetime ?? '',
+      player.r2_teetime ?? '',
+      player.r3_teetime ?? '',
+      player.r4_teetime ?? '',
+      player.start_hole ?? '',
+    ]);
+  }
+
+  const headers = [ 'id_athlete_dg','early_late','r1_teetime','r2_teetime','r3_teetime','r4_teetime','start_hole']
+
+  const outputArray = dataset.map(row => {
+    let obj = {};
+    headers.forEach((header, index) => {
+      // Convert date strings to Date objects for easy comparison
+      if (header.toLowerCase().includes('date')) {
+        obj[header] = row[index] ? new Date(row[index]) : null;
+      } else {
+        obj[header] = row[index];
+      }
+    });
+    return obj;
+  });
+
+  return outputArray
+
+}
+
+// ----------------------------------------------------------------------------------
+function merge_live_data_dg_id(array1, array2) {
+    if (!Array.isArray(array1) || !Array.isArray(array2)) {
+        throw new TypeError("Both inputs must be arrays.");
+    }
+
+    // Use a Map to store objects by their unique id
+    const mergedMap = new Map();
+
+    // Add all objects from arr1
+    array1.forEach(obj => {
+        if (obj && typeof obj.id_athlete_dg !== "undefined") {
+            mergedMap.set(obj.id_athlete_dg, { ...obj });
+        }
+    });
+
+    // Update only if the ID already exists in mergedMap
+    array2.forEach(obj => {
+        const id = obj?.id_athlete_dg;
+        if (typeof id !== "undefined" && mergedMap.has(id)) {
+            // Merge new properties onto the existing object
+            mergedMap.set(id, { ...mergedMap.get(id), ...obj });
+        }
+    });
+
+    // Convert Map values back to an array
+    return Array.from(mergedMap.values());
+}
+
+// ----------------------------------------------------------------------------------
+function merge_live_data_espn_id(array1, array2) {
+    if (!Array.isArray(array1) || !Array.isArray(array2)) {
+        throw new TypeError("Both inputs must be arrays.");
+    }
+
+    // Use a Map to store objects by their unique id
+    const mergedMap = new Map();
+
+    // Add all objects from arr1
+    array1.forEach(obj => {
+        if (obj && typeof obj.id_athlete_espn !== "undefined") {
+            mergedMap.set(obj.id_athlete_espn, { ...obj });
+        }
+    });
+
+    // Update only if the ID already exists in mergedMap
+    array2.forEach(obj => {
+        const id = obj?.id_athlete_espn;
+        if (typeof id !== "undefined" && mergedMap.has(id)) {
+            // Merge new properties onto the existing object
+            mergedMap.set(id, { ...mergedMap.get(id), ...obj });
+        }
+    });
+
+    // Convert Map values back to an array
+    return Array.from(mergedMap.values());
+}
+
+
+
+// ----------------------------------------------------------------------------------
+function calculateGolfWinnings(players,prizeMap) {
+
+  const existingRanks = players
+    .map(p => parseInt((p.adjusted_rank || "").toString().replace(/[^0-9]/g, "")))
+    .filter(r => !isNaN(r))
+    .sort((a, b) => a - b);
+
+  const uniqueRanks = [...new Set(existingRanks)];
+  
+  // Create a map
+  const rankMap = {};
+  uniqueRanks.forEach((rawRank, index) => {
+    rankMap[rawRank] = index + 1;
+  });
+
+  console.log(rankMap)
+
+  // 2. Update players to use Adjusted Rank if original is blank
+  players.forEach(player => {
+    const rawRank = parseInt((player.current_position || "").toString().replace(/[^0-9]/g, ""));
+    const uncut_rank = player.current_position
+
+    if (uncut_rank === "CUT" || uncut_rank === "WD" || uncut_rank === "DQ") {
+      player.effective_rank = 0;
+    } else if (isNaN(rawRank) || rawRank === undefined || rawRank === null || rawRank === '') {
+      player.effective_rank = rankMap[player.adjusted_rank] || null;
+    } else {
+      player.effective_rank = rawRank;
+    }
+
+  });
+
+  // 3. Count occurrences of the EFFECTIVE rank (for tie logic)
+  const positionCounts = players.reduce((acc, player) => {
+    if (player.effective_rank) {
+      acc[player.effective_rank] = (acc[player.effective_rank] || 0) + 1;
+    }
+    return acc;
+  }, {});
+
+  // 4. Calculate winnings based on the effective rank
+  players.forEach((player) => {
+    const startRank = player.effective_rank;
+
+    if (!startRank) {
+      player.projected_earnings = 0;
+      return;
+    }
+
+    const count = positionCounts[startRank];
+
+    if (count > 1) {
+      // TIE LOGIC
+      let totalTiePool = 0;
+      for (let i = 0; i < count; i++) {
+        totalTiePool += (prizeMap[startRank + i] || 0);
+      }
+      player.projected_earnings = totalTiePool / count;
+    } else {
+      // SOLO LOGIC
+      player.projected_earnings = prizeMap[startRank] || 0;
+    }
+  });
+
+  return players;
+}
+
+function createFinalOutput(dataset,fieldsForLookup){
+    const finalDataset = dataset.map(originalObject => {
+      const newObject = {};
+
+      // Iterate over the list of fields we want to keep
+      fieldsForLookup.forEach(field => {
+        
+        // Check if the field exists in the original object
+        if (originalObject.hasOwnProperty(field)) {
+          
+          // Copy the key-value pair to the new object
+          newObject[field] = originalObject[field];
+        }
+        // If the field doesn't exist, it's skipped in the new object
+      });
+      
+      return newObject;
+    });
+  return finalDataset
+}
+
