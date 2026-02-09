@@ -1,0 +1,148 @@
+function update_detailed_results_history() {
+console.log('Updating leaderboard detailed results');
+const leaderboard = global.readSheetData(SHT_VIEW_LEADERBOARD)
+
+  if (leaderboard.length === 0) {
+      console.log('Leaderboard Blank');
+      return; 
+  } 
+
+  console.log(leaderboard.length)
+
+const user_detailed_results = global.readSheetData(SHT_USER_RESULTS)
+
+user_detailed_results.push(leaderboard)
+
+const merge = merge_results(user_detailed_results,leaderboard)
+
+  SHT_USER_RESULTS.clearContents();
+  global.setValues_keys(merge,SHT_USER_RESULTS)
+
+}
+
+function merge_results(array1, array2) {
+if (!Array.isArray(array1) || !Array.isArray(array2)) {
+        throw new TypeError("Both inputs must be arrays.");
+    }
+
+    // Use a Map to store objects by their unique id
+    const mergedMap = new Map();
+
+    // Add all objects from array1
+    array1.forEach(obj => {
+        if (obj && typeof obj.UID !== "undefined") {
+            mergedMap.set(obj.UID, { ...obj });
+        }
+    });
+
+    // Merge updates OR append new data from array2
+    array2.forEach(obj => {
+        const id = obj?.UID;
+        if (typeof id !== "undefined") {
+            // If id exists, it merges. If it doesn't, it creates a new entry (appends).
+            const existingData = mergedMap.get(id) || {};
+            mergedMap.set(id, { ...existingData, ...obj });
+        }
+    });
+
+    console.log('Updating results summary');
+    update_results_summary()
+    
+    // Convert Map values back to an array
+    return Array.from(mergedMap.values());
+
+}
+
+function update_results_summary() {
+const overall_results = global.readSheetData(SHT_OVERALL_RESULTS)
+const user_detailed_results = global.readSheetData(SHT_USER_RESULTS)
+
+console.log(user_detailed_results.length)
+
+  const summaryMap = new Map();
+  const uniqueTournaments = new Set();
+
+  user_detailed_results.forEach(row => {
+    const user = row.Name;
+    const tourney = row.tournamentName;
+    const year = row.year;
+    const earnings = parseFloat(row['Total Winnings']) || 0;
+    
+    if (!user || !year) return; // Skip empty rows
+
+    const key = `${user}|${year}`;
+    uniqueTournaments.add(tourney);
+   
+    if (!summaryMap.has(key)) {
+      summaryMap.set(key, {
+        user: user,
+        year: year,
+        UID: user +"_"+year,
+        total: 0,
+        tourneyData: {}
+      });
+    }
+
+    const entry = summaryMap.get(key);
+    entry.total += earnings;
+    // Sum earnings for this specific tournament under this user/year
+    entry.tourneyData[tourney] = (entry.tourneyData[tourney] || 0) + earnings;
+  });
+
+  // 2. Build Headers (User, Year, Total, then all unique tournaments)
+  const sortedTourneys = Array.from(uniqueTournaments).sort();
+  const finalHeader = ['UID',"Name", "Year", "Grand Total", ...sortedTourneys];
+  
+  // 3. Generate Rows
+  const outputRows = [];
+  summaryMap.forEach((val) => {
+    const row = [val.UID, val.user, val.year, val.total];
+    
+    // Add earnings for each tournament column
+    sortedTourneys.forEach(tName => {
+      row.push(val.tourneyData[tName] || 0);
+    });
+    
+    outputRows.push(row);
+
+    
+  });
+
+  const output_keys = add_keys(outputRows,finalHeader)
+
+  const merge_results = merge_results_id(output_keys,overall_results)
+
+  SHT_OVERALL_RESULTS.clearContents();
+  global.setValues_keys(merge_results,SHT_OVERALL_RESULTS)
+
+}
+
+function merge_results_id(array1, array2) {
+    if (!Array.isArray(array1) || !Array.isArray(array2)) {
+        throw new TypeError("Both inputs must be arrays.");
+    }
+
+    // Use a Map to store objects by their unique id
+    const mergedMap = new Map();
+
+    // Add all objects from arr1
+    array1.forEach(obj => {
+        if (obj && typeof obj.UID !== "undefined") {
+            mergedMap.set(obj.UID, { ...obj });
+        }
+    });
+
+    // Update only if the ID already exists in mergedMap
+    array2.forEach(obj => {
+        const id = obj?.UID;
+        if (typeof id !== "undefined" && mergedMap.has(id)) {
+            // Merge new properties onto the existing object
+            mergedMap.set(id, { ...mergedMap.get(id), ...obj });
+        }
+    });
+
+    // Convert Map values back to an array
+    return Array.from(mergedMap.values());
+}
+
+
