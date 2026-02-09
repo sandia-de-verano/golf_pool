@@ -1,0 +1,95 @@
+function get_past_event_earnings() {
+ 
+  // --- 2. Batch Read: Lookup Table (Get Current Event URL) ---
+  const lookUpData = SHT_LOOKUPTOURNAMENT.getDataRange().getValues();
+  if (lookUpData.length <= 1) return;
+
+  const lookUpHeaders = lookUpData[0];
+  const lookUpValues = lookUpData.slice(1);
+
+  const currentEvent = lookUpValues
+      .map(row => {
+          let obj = {};
+          lookUpHeaders.forEach((header, index) => { obj[header] = row[index]; });
+          return obj;
+      })
+      .find(item => item.tourItem === 'current');
+
+  if (!currentEvent || !currentEvent.id_tournament) {
+    console.log("Could not find 'current' event in lookup table.");
+    return;
+  }
+
+  var id_tournament = currentEvent.id_tournament;
+
+  const eventData = SHT_EVENTS.getDataRange().getValues();
+  const eventDataHeaders = eventData[0];
+  const eventDataValues = eventData.slice(1);
+  const eventData_filter = eventDataValues
+      .map(row => {
+          let obj = {};
+          eventDataHeaders.forEach((header, index) => { obj[header] = row[index]; });
+          return obj;
+      })
+      .filter(item => item.id_tournament == id_tournament && item.eventStatusDesc === 'Final');
+
+  console.log('number of events: '+eventData_filter.length)
+    
+  const url_event = eventData_filter.map(function(obj) {
+        return [
+      obj.url_event,
+      obj.id_tournament, 
+      obj.id_event, 
+      obj.year 
+    ];
+  });
+
+ var dataset = [];
+ var headers = ['id_tournament','id_event','year','order','earnings']
+    
+    try {
+    
+      for (var i = 0; i < url_event.length; i++) {
+        var id_tournament = url_event[i][1]
+        var id_event = url_event[i][2]
+        var year = url_event[i][3]
+
+        const response = UrlFetchApp.fetch(url_event[i][0], {muteHttpExceptions: true});
+        var data = JSON.parse(response.getContentText());
+        data = data.competitions[0].competitors
+
+        for (var j = 0; j < data.length; j++) {       
+          var tempData = []
+          if(data[j].order == undefined ){ var order = ''; } else { var order = data[j].order || '' }
+          if(data[j].earnings == undefined ){ var earnings = 0; } else { var earnings = data[j].earnings || '' }
+
+          tempData.push(
+            id_tournament,
+            id_event,
+            year,
+            order,
+            earnings,
+            );
+          dataset.push(tempData)
+        }
+      }
+      console.log(`processed: ${url_event[i][0]}`)
+
+    } catch (e) {console.log(`Error processing ${url_event[i]}: ${e.message}`);}
+
+  
+  var dataset_filtered = dataset.filter(item => {
+    value = item[4]
+    return value !== "" && value !== 0;
+  });
+
+  console.log('number of rows: '+dataset_filtered.length)
+
+
+  if (dataset_filtered.length === 0) {
+    console.log('No earnings reported')
+  }
+
+  SHT_PRIOREVENT_MONEY.clearContents()
+  global.setValues(dataset_filtered,SHT_PRIOREVENT_MONEY,headers)
+}
