@@ -1,0 +1,442 @@
+function update_pool_leaderboard() {
+
+  const currentEvent = getCurrentEvent(SHT_LOOKUPTOURNAMENT);
+    if (!currentEvent) return;
+  const id_event = currentEvent.id_event;
+  //const id_event = '401811930'
+
+  const player_rankings = global.readSheetData(SHT_RANKINGS);
+
+  const player_selection_data = global.readSheetData(SHT_PLAYERDATA);
+  //const player_live_data = global.readSheetData(SHT_TEST);
+  const player_live_data = global.readSheetData(SHT_PLAYERLIVE);
+    const live_proj_earn_sum = sumField(player_live_data, 'projected_earnings');
+    const earnings_sum = sumField(player_live_data, 'earnings');
+  const user_selection_data = global.readSheetData(SHT_UPDATE_USERSELECTIONS);
+
+  // 1. Filter User Selections
+  const filt_user_selection_data = user_selection_data.filter(item => 
+    String(item.id_event) === String(id_event)
+  );
+
+  // 2. Maps for Lookups (Simplified)
+
+  const playerRankingsMap = new Map();
+    player_rankings.forEach(playerObj => {
+     const id_athlete_espn = String(playerObj.id_athlete_espn);
+        if (id_athlete_espn) {
+          const player = {
+            id_athlete_espn: String(playerObj.id_athlete_espn),
+            fullName: playerObj.player_name,
+            position: 'WD',
+            thru: 0,
+            current_score: 0,
+          };
+        playerRankingsMap.set(id_athlete_espn, player);
+    }
+  });
+
+
+
+  const playerSelectionMap = new Map();
+    player_selection_data.forEach(playerObj => {
+     const id_athlete_espn = playerObj.id_athlete_espn;
+        if (id_athlete_espn) {
+          const player = {
+            id_athlete_espn: String(playerObj.id_athlete_espn),
+            fullName: playerObj.fullName,
+            id_event: playerObj.id_event || '',
+            year: playerObj.year || '',  
+            tournament_name:  playerObj.tournamentName || '',
+            projected_earnings:   playerObj.projected_earnings || 0,
+          };
+        playerSelectionMap.set(id_athlete_espn, player);
+    }
+  });
+
+    const playerLiveMap = new Map();
+
+    player_live_data.forEach(playerObj => {
+     const id_athlete_espn = playerObj.id_athlete_espn;
+        if (id_athlete_espn) {
+          const player = {
+            id_athlete_espn: String(playerObj.id_athlete_espn),
+            earnings: playerObj.earnings,
+            projected_earnings: playerObj.projected_earnings,
+            position: playerObj.current_position,
+            thru: playerObj.thru || '',
+            current_score: playerObj.current_score || '',     
+          };
+        playerLiveMap.set(id_athlete_espn, player);
+    }
+  });
+
+  // 3. Flatten User Selections into "One Row Per Player"
+  const flattenedUserSelections = [];
+  
+  filt_user_selection_data.forEach(row => {
+    // Base info shared by all player rows for this user
+    const base = {
+      UID: row.UID,
+      user_name: row.user_fullName, // Fallback check
+      user_email: row.user_email || row.userEmail,
+      id_event: row.id_event,
+      tournament_name: row.tournament_Name
+    };
+
+// Mapping of slot types to the row properties
+    const slots = [
+      { type: 's1', id: row.id_athlete_espn_s1, sub: row.S1_SUB },
+      { type: 's2', id: row.id_athlete_espn_s2, sub: row.S2_SUB },
+      { type: 's3', id: row.id_athlete_espn_s3, sub: row.S3_SUB },
+      { type: 'liv', id: row.id_athlete_espn_liv, sub: row.LIV_SUB },
+      { type: 'alt_1', id: row.id_athlete_espn_alt1, sub: row.A1_S_SWAP ? 'Yes' : 'No' },
+      { type: 'alt_2', id: row.id_athlete_espn_alt2, sub: row.A2_S_SWAP ? 'Yes' : 'No' },
+      { type: 'alt_liv', id: row.id_athlete_espn_alt_liv, sub: row.LIV_SUB }
+    ];
+
+slots.forEach(slot => {
+      if (slot.id) {
+        flattenedUserSelections.push({
+          ...base,
+          type: slot.type,
+          sub: slot.sub === 'Yes' ? 'Yes' : '',
+          id_athlete_espn: String(slot.id)
+        });
+      }
+    });
+  });
+
+ //const final_earnings_map = new Map(final_earnings_raw.map(p => [p.id_athlete_espn, p]));
+
+ //console.log(Array.from(final_earnings_map))
+ //console.log(earnings_sum,live_proj_earn_sum)
+
+  const mergedData = flattenedUserSelections.map(item => {
+    const player_ranking = playerRankingsMap.get(item.id_athlete_espn) || {};
+    const player_data = playerSelectionMap.get(item.id_athlete_espn) || {};
+    const live_data = playerLiveMap.get(item.id_athlete_espn) || {};
+
+    let earn_flag
+      if( earnings_sum > 0 && live_proj_earn_sum > 0) { // checking final_earnings
+        earnings = live_data.earnings;
+        earn_flag = 'final';
+
+      } else if (earnings_sum === 0 && live_proj_earn_sum > 0) {
+        earnings = live_data.projected_earnings;
+        earn_flag = 'projected_earnings';
+
+      } else  {
+        earnings = 0;
+        earn_flag = '';
+      } 
+
+    return {
+      ...item,
+      fullName: player_data.fullName ?? player_ranking.fullName ?? '',
+      year: player_data.year  ?? YEAR ?? '',
+      position: live_data.position ?? player_ranking.position ?? '',
+      thru: live_data.thru ?? player_ranking.thru ?? '',
+      score: live_data.current_score ?? 0,
+      earnings: earnings ?? 0,
+      earn_flag: earn_flag ?? "",
+    };
+  });
+
+  //SHT_USER_RESULTS_LIST_VIEW.clearContents();
+  //global.setValues_keys(mergedData,SHT_USER_RESULTS_LIST_VIEW)
+
+// 5. Pivot and Sort
+  const processed = processData(mergedData);
+  const finalOutput = flattenData_v2(processed);
+
+  // 6. Write Output
+  const header_pool = [
+    'UID',
+    'id_event',
+    'year',
+    'tournamentName',
+    'Rank',
+    'Name',
+    'Total Winnings',
+    'earn_flag',
+    'id_athlete_espn_s1',
+    'S1 Sub',
+    'S1 Rank',
+    'S1 Player Name',
+    'S1 Thru',
+    'S1 Score',
+    'S1 Earnings',
+    'id_athlete_espn_s2',
+    'S2 Sub',
+    'S2 Rank',
+    'S2 Player Name',
+    'S2 Thru',
+    'S2 Score',
+    'S2 Earnings',
+    'id_athlete_espn_s3',
+    'S3 Sub',
+    'S3 Rank',
+    'S3 Player Name',
+    'S3 Thru',
+    'S3 Score',
+    'S3 Earnings',
+    'id_athlete_espn_liv',
+    'LIV Sub',
+    'LIV Rank',
+    'LIV Player Name',
+    'LIV Thru',
+    'LIV Score',
+    'LIV Earnings',
+    'id_athlete_espn_alt1',
+    'Alt1 Sub',
+    'Alt1 Rank',
+    'Alt1 Player Name',
+    'Alt1 Thru',
+    'Alt1 Score',
+    'Alt1 Earnings',
+    'id_athlete_espn_alt1',
+    'Alt2 Sub',
+    'Alt2 Rank',
+    'Alt2 Player Name',
+    'Alt2 Thru',
+    'Alt2 Score',
+    'Alt2 Earnings',
+    'id_athlete_espn_alt_liv',
+    'Alt LIV Sub',
+    'Alt LIV Rank',
+    'Alt LIV Player Name',
+    'ALT LIV Thru',
+    'ALT LIV  Score',
+    'ALT LIV Earnings',
+    ];
+
+  // --- 5. Write Output to a New Sheet ---
+
+  SHT_VIEW_LEADERBOARD.clearContents();
+  global.setValues(finalOutput,SHT_VIEW_LEADERBOARD,header_pool)
+
+  create_update_leaderboards()
+  update_detailed_results_history()
+
+}
+
+// --- : Pool Leaderboard ---
+// ----------------------------------------------------------------------------------
+
+function processData(rawData) {
+  const userMap = [];
+  const EARNINGS_TYPES = ['s1', 's2', 's3', 'liv'];
+
+  rawData.forEach(row => {
+    const uid = row.UID;
+    if (!userMap[uid]) {
+      userMap[uid] = {
+        UID: row.UID,
+        user_name: row.user_name,
+        id_event: row.id_event,
+        year: row.year,
+        tournament_name: row.tournament_name,
+        totalEarnings: 0,
+        earn_flag: row.earn_flag,
+        data: {}
+      };
+    }
+
+    if (EARNINGS_TYPES.includes(row.type)) {
+      userMap[uid].totalEarnings += parseFloat(row.earnings || 0);
+    }
+
+    userMap[uid].data[row.type] = {
+      id: String(row.id_athlete_espn),
+      sub: row.sub,
+      pos: row.position,
+      name: row.fullName,
+      thru: row.thru,
+      score: row.score,
+      earn: row.earnings,
+    };
+  });
+
+  return Object.values(userMap);
+}
+// ----------------------------------------------------------------------------------
+
+function flattenData_v2(data) {
+  data.sort((a, b) => b.totalEarnings - a.totalEarnings);
+
+  // Assign Ranks
+  data.forEach((user, i) => {
+    if (i > 0 && user.totalEarnings === data[i - 1].totalEarnings) {
+      user.rank = data[i - 1].rank;
+    } else {
+      user.rank = i + 1;
+    }
+  });
+
+ const finalData = [];
+
+  data.forEach(user => {
+
+    const row = [
+      user.UID, 
+      user.id_event,
+      user.year,
+      user.tournament_name, 
+      user.rank, 
+      user.user_name, 
+      user.totalEarnings,
+      user.earn_flag
+      
+    ];
+
+  // selections    
+    const select_details = user.data; 
+    const types = ['s1', 's2', 's3', 'liv', 'alt_1', 'alt_2', 'alt_liv'];
+    // data for selections  
+    
+    types.forEach(type => {
+      const typeData = select_details[type] ||{};
+      row.push(
+        typeData.id || '',
+        typeData.sub || '',
+        typeData.pos || '',
+        typeData.name || '',
+        typeData.thru || '',
+        typeData.score || '',
+        typeData.earn || 0,
+      );
+    })
+
+  finalData.push(row)
+  });
+
+  return finalData
+}
+
+// _____________________________________________
+
+function create_update_leaderboards() {
+	const user_selection_data = global.readSheetData(SHT_USERSELECTION)
+
+      const headers = [
+      "UID", 
+      "user_fullName", 
+      'user_email', 
+      'id_event', 
+      "tournament_Name", 
+      "S1_SUB", 
+      "S2_SUB", 
+      "S3_SUB", 
+      "LIV_SUB", 
+      "A1_S_SWAP", 
+      "A2_S_SWAP", 
+      "Player Selection 1", 
+      "Player Selection 2", 
+      "Player Selection 3", 
+      "Player Selection LIV", 
+      "Player Alternate 1", 
+      "Player Alternate 2", 
+      "Player Alternate LIV",
+      'id_athlete_espn_s1',	
+      'id_athlete_espn_s2',	
+      'id_athlete_espn_s3',	
+      'id_athlete_espn_liv',	
+      'id_athlete_espn_alt1',	
+      'id_athlete_espn_alt2',	
+      'id_athlete_espn_alt_liv'];
+
+  const finalOutputArray = [headers]
+  const backgroundArray = [new Array(headers.length).fill(null)];
+
+  user_selection_data.forEach((row) => {
+    let s1_sub = "No", s2_sub = "No", s3_sub = "No", liv_sub = "No";
+    let a1s_sub = "", a2s_sub = "";
+    let rowColors = new Array(headers.length).fill(null); 
+
+    // --- INITIALIZE CURRENT STATE ---
+    // Start with the original data for this row
+    let lineup = {
+      s1: { name: cleanValue(row.selection1), id: row.id_athlete_espn_s1 },
+      s2: { name: cleanValue(row.selection2), id: row.id_athlete_espn_s2 },
+      s3: { name: cleanValue(row.selection3), id: row.id_athlete_espn_s3 },
+      liv: { name: cleanValue(row.liv), id: row.id_athlete_espn_liv },
+      a1: { name: cleanValue(row.alt1), id: row.id_athlete_espn_alt1 },
+      a2: { name: cleanValue(row.alt2), id: row.id_athlete_espn_alt2 },
+      aliv: { name: cleanValue(row.altLiv), id: row.id_athlete_espn_alt_liv }
+    };
+
+    // --- DEFINE THE SWAP FUNCTION ---
+    const executeTrueSwap = (updatedKey, starterKey, slotLabel, nameCol, idCol) => {
+      const updatedValClean = cleanValue(row[updatedKey]);
+      const currentStarterClean = lineup[starterKey].name;
+
+      if (updatedValClean && updatedValClean !== currentStarterClean) {
+        
+        let altSlotMatch = null;
+        if (lineup.a1.name === updatedValClean) altSlotMatch = 'a1';
+        else if (lineup.a2.name === updatedValClean) altSlotMatch = 'a2';
+        else if (lineup.aliv.name === updatedValClean) altSlotMatch = 'aliv';
+
+        if (altSlotMatch) {
+          // Perform the Swap
+          let tempStarter = { ...lineup[starterKey] };
+          lineup[starterKey] = { ...lineup[altSlotMatch] }; // Alt moves to Starter
+          lineup[altSlotMatch] = tempStarter;              // Starter moves to Alt
+
+          // Update UI/Metadata Flags
+          if (starterKey === 's1') s1_sub = "Yes";
+          if (starterKey === 's2') s2_sub = "Yes";
+          if (starterKey === 's3') s3_sub = "Yes";
+          if (starterKey === 'liv') liv_sub = "Yes";
+          
+          if (altSlotMatch === 'a1') a1s_sub = slotLabel;
+          if (altSlotMatch === 'a2') a2s_sub = slotLabel;
+
+          // Highlight Starter Name/ID and Alt Name/ID
+          const altNameCol = altSlotMatch === 'a1' ? 15 : (altSlotMatch === 'a2' ? 16 : 17);
+          const altIdCol = altSlotMatch === 'a1' ? 22 : (altSlotMatch === 'a2' ? 23 : 24);
+          
+          [nameCol, idCol, altNameCol, altIdCol].forEach(idx => rowColors[idx] = "#d9ead3");
+        }
+      }
+    };
+
+  executeTrueSwap('updatedPick_s1', 's1', 'S1', 11, 18);
+  executeTrueSwap('updatedPick_s2', 's2', 'S2', 12, 19);
+  executeTrueSwap('updatedPick_s3', 's3', 'S3', 13, 20);
+  executeTrueSwap('updatedPick_LIV', 'liv', 'LIV', 14, 21);
+
+  const outputRow = [
+      row.UID, row.user_fullName, row.user_email, row.id_event, row.tournamentName,
+      s1_sub, s2_sub, s3_sub, liv_sub, a1s_sub, a2s_sub,
+      lineup.s1.name, lineup.s2.name, lineup.s3.name, lineup.liv.name, // Updated Starters
+      lineup.a1.name, lineup.a2.name, lineup.aliv.name,               // Updated Alts
+      lineup.s1.id, lineup.s2.id, lineup.s3.id, lineup.liv.id,         // Updated Starter IDs
+      lineup.a1.id, lineup.a2.id, lineup.aliv.id                     // Updated Alt IDs
+    ];
+
+    finalOutputArray.push(outputRow);
+    backgroundArray.push(rowColors);
+  });
+
+  // 3. Write Data and Colors to Sheet
+  if (finalOutputArray.length > 1) {
+    SHT_UPDATE_USERSELECTIONS.clearContents();
+    const range = SHT_UPDATE_USERSELECTIONS.getRange(1, 1, finalOutputArray.length, finalOutputArray[0].length);
+    range.setValues(finalOutputArray);
+    range.setBackgrounds(backgroundArray);
+  }
+}
+
+function cleanValue(value) {
+  if (!value || typeof value !== 'string') return value;
+  
+  // This regex looks for digits followed by a hyphen and space at the start
+  // or simply splits by the first hyphen if found.
+  if (value.includes(' - ')) {
+    return value.split(' - ').slice(1).join(' - ').trim();
+  }
+  return value.trim();
+}
+
