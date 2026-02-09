@@ -1,0 +1,92 @@
+function leaderboard_flow () {
+
+  const currentEvent = getCurrentEvent(SHT_LOOKUPTOURNAMENT);
+    const start_date = currentEvent.adj_start_date
+    const end_date = currentEvent.adj_end_date
+    const date_status = checkDateStatus(start_date) // checks if event has started
+    const date_end_status = checkDateStatus(end_date)
+
+  const leaderboard = global.readSheetData(SHT_VIEW_LEADERBOARD);
+    const earn_flag = leaderboard[0].earn_flag || ''
+
+  // check if finalized
+  if (earn_flag === 'final' && date_status === false && date_end_status === false) {
+      console.log('data final: final, false - ', earn_flag,date_status,date_end_status);
+      return; 
+  } 
+
+  // if not finalized, check if DG is providing data, if so run get live data
+  const player_live = global.readSheetData(SHT_PLAYERLIVE);
+    const is_blank_curr_round = isKeyFieldBlank(player_live, "current_round")
+    const is_blank_thru = isKeyFieldBlank(player_live, "thru")
+    const is_blank_today = isKeyFieldBlank(player_live, "today")
+    const recent_update = checkRecentUpdates(player_live)
+
+  if (is_blank_thru && is_blank_curr_round && date_status && date_end_status ) {
+    console.log('get live data, pre tour: true, true, true, true - ',is_blank_thru,is_blank_curr_round, date_status, date_end_status);
+    console.log('running live data')
+    get_live_data_again(); 
+
+  } else if (is_blank_thru === false && is_blank_curr_round === false && date_end_status ) {
+    console.log('get live data, during tour: false, false, true - ',is_blank_thru,is_blank_curr_round, date_end_status);
+    console.log('running live data')
+    get_live_data_again();
+
+  } else if (recent_update === false && is_blank_curr_round && is_blank_thru && is_blank_today && date_status === false && date_end_status === false) {
+    console.log('get final data, false, true, true, true, false - ',recent_update,is_blank_thru,is_blank_curr_round,is_blank_today, date_status );
+    console.log('running final earnings')
+    get_final_earnings();
+    
+  } 
+
+}
+
+// --------------------------------------------------------
+function isKeyFieldBlank(dataArray, keyName) {
+  return dataArray.every(obj => {
+    const value = obj[keyName];
+    // Checks for empty string, null, or undefined
+    return value === "" || value === null || value === undefined;
+  });
+}
+// --------------------------------------------------------
+function checkRecentUpdates(dataArray) {
+  const now = new Date().getTime(); // Current time in ms
+  const oneHour = 60 * 60 * 1000;   // 3,600,000 ms
+
+  const recentlyUpdated = dataArray.filter(item => {
+    // Convert the stored string or date object back into a timestamp
+    const updatedTime = new Date(item.last_updated).getTime();
+    
+    // Check if the time difference is less than 1 hour
+    return (now - updatedTime) < oneHour;
+  });
+
+  let status
+  if (recentlyUpdated.length > 0) {
+    status = true
+    console.log(`${recentlyUpdated.length} items were updated in the last hour.`);
+  } else {
+    status = false
+    console.log("No items updated recently.");
+  }
+  return status
+}
+
+function checkDateStatus(target_date) {
+  const today = new Date();
+  const targetDate = target_date
+
+  // Compare using .getTime()
+  let date_status
+  if (today.getTime() < targetDate.getTime()) {
+    date_status = true
+    //console.log("Today is before the target date.");
+    // Run your 'pool' logic here
+  } else {
+    date_status = false
+    //console.log("The target date has passed or is today.");
+  }
+
+  return date_status
+}
