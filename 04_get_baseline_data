@@ -1,0 +1,540 @@
+/** Gets all data for the start of a tournament
+ *  - Gets LIV Athletes 
+ *  - Gets rankings from dataGolf
+ *  - Gets rankings from ESPN
+ *  - gets field updates, player decomp, pre tournament data, skill rankings (dataGolf)
+ */
+
+function get_baseline_data() {
+  // --- 1. Get Data ---
+  const currentEvent = getCurrentEvent(SHT_LOOKUPTOURNAMENT);
+  const athlete_data = global.readSheetData(SHT_ATHLETES);
+  const lookup_athletes = SHT_LOOKUP_ATHLETES_ESPN_DG.getDataRange().getValues();
+  const lookup_liv_temp = SHT_LIV_PLAYERS.getRange(4,14,SHT_LIV_PLAYERS.getLastRow(),2).getValues();
+    const lookup_liv_players = lookup_liv_temp.map(([id]) => {
+        return {
+          id_athlete_espn: String(id[0]),
+          id_athlete_dg: String(id[1]),
+          active_LIV_player: 'yes'
+        };
+      });
+  // --- Create Lookups ---
+   const dgToEspnMap = createDgToEspnMap(lookup_athletes); // key is dg_id, lookup espn_id -> use dg_id in data
+   const espnToDgMap = createEspnToDgMap(lookup_athletes); // key is espn_id, lookup dg_id -> use espn_id in data
+
+  // --- Rankings ---
+  const rankings_raw = get_dg_rankings_v2(dgToEspnMap,espnToDgMap)
+  const rankings_raw_espn = get_espn_rankings_v2()
+  const rankings_map = mergeArrayData(rankings_raw,dgToEspnMap, espnToDgMap,'id_athlete_dg')
+  const rankings_espn = merge_live_data_espn_id(rankings_map, rankings_raw_espn)
+
+  const rankings_adj =  add_selection_name_LIV(rankings_espn,lookup_liv_players);
+
+  rankings_adj.sort((a, b) => a.adjusted_rank - b.adjusted_rank);
+
+  SHT_RANKINGS.clearContents();
+  global.setValues_keys(rankings_adj,SHT_RANKINGS)
+
+  // --- Get Event Specific Data --- 
+
+    // --- 1. Get Data ---
+    // --- DG Data ---
+  const field_updates = dg_get_field_updates_3(dgToEspnMap,espnToDgMap,currentEvent)
+  const player_decomp_data = get_player_decomp();
+  const preTour_Data = get_preTourData_v2();
+  const skill_ratings = get_skill_ratings()
+
+  const temp_dg_data_comp_decomp = merge_live_data_dg_id(field_updates, player_decomp_data)
+  const temp_dg_data_pretour = merge_live_data_dg_id(temp_dg_data_comp_decomp, preTour_Data)
+  const temp_dg_data_skillRk = merge_live_data_dg_id(temp_dg_data_pretour, skill_ratings)
+
+  const temp_addNames = merge_live_data_espn_id(temp_dg_data_skillRk, athlete_data);
+
+  console.log('temp_addNames: '+temp_addNames.length)
+
+  const dataset_addRanking = merge_live_data_dg_id(temp_addNames, rankings_espn)
+
+  console.log('dataset_addRanking: '+dataset_addRanking.length)
+
+  const dataset_adj_rank =  add_selection_name_LIV(dataset_addRanking,lookup_liv_players);
+
+  console.log(dataset_adj_rank[75])
+
+  const final_dataset = dataset_adj_rank.filter(item => item.event_name !== undefined || item.event_name !== '' || item.event_name !== null);
+
+    final_dataset.sort((a, b) => a.adjusted_rank - b.adjusted_rank);
+  
+  SHT_PLAYERDATA.clearContents();
+  global.setValues_keys(final_dataset,SHT_PLAYERDATA)
+
+}
+
+function get_dg_rankings_v2(dgToEspnMap,espnToDgMap) {
+
+  const headers = ['id_athlete_dg','player_name', 'owgr_rank',	'datagolf_rank', 'primary_tour',	'isAmateur',	'country',	'skill_estimate']
+ 
+  const endpoint = `${SOURCEURL_DG}${ENDPT_PRD_RANKS}?${FILEFORMAT}${API_DG}`;
+
+    // --- 1. Fetch Data ---
+  let data;
+  try {
+    const response = UrlFetchApp.fetch(endpoint, { muteHttpExceptions: true });
+    if (response.getResponseCode() !== 200) {
+      throw new Error(`HTTP Error ${response.getResponseCode()}`);
+    }
+    data = JSON.parse(response.getContentText());
+  } catch (e) {
+    console.log(`Failed to fetch DataGolf rankings: ${e.message}`);
+    return;
+  }
+
+  // --- 2. Process Data ---
+  const dataset = [];
+  const rankings = data.rankings || [];
+
+  for (const rank of rankings) {
+    const newNormalizedName = swapNameOrder(rank.player_name);
+
+    dataset.push([
+      rank.dg_id ?? '',
+      newNormalizedName,
+      rank.owgr_rank,
+      rank.datagolf_rank,
+      rank.primary_tour ?? '',
+      rank.am ?? '',
+      rank.country ?? '',
+      rank.dg_skill_estimate ?? '',
+    ]);
+  }
+
+  // --- 3. Batch Write Results ---
+  
+  const outputArray = dataset.map(row => {
+    let obj = {};
+    headers.forEach((header, index) => {
+      // Convert date strings to Date objects for easy comparison
+      if (header.toLowerCase().includes('date')) {
+        obj[header] = row[index] ? new Date(row[index]) : null;
+      } else {
+        obj[header] = row[index];
+      }
+    });
+    return obj;
+  });
+
+  const finalArray = mergeArrayData(outputArray, dgToEspnMap, espnToDgMap, 'id_athlete_dg')
+
+  return finalArray
+
+}
+
+function add_selection_name_LIV(rankings_dataset,liv_players){
+      
+      const dataset_combinedValue = rankings_dataset.map(athlete => {
+          const current_rank = athlete.owgr_rank || '501';
+          const current_rank_dg = athlete.datagolf_rank  || '501';
+          const isActiveLIV = athlete.active_LIV_player === 'yes';
+          const containsLIV = athlete.league ? athlete.league.toLowerCase().includes('liv') : false;
+  
+          let adjusted_rank;
+          let rank_flag;
+         if (current_rank_dg < current_rank && isActiveLIV && containsLIV) {
+            adjusted_rank = current_rank_dg; 
+            rank_flag = 'adj'
+          } 
+          // Logic 2: League contains 'liv' but NOT an active player -> Max of ranks
+          else if (current_rank_dg < current_rank) {
+            adjusted_rank = current_rank_dg;
+            rank_flag = 'adj'
+          } 
+          // Logic 3: Everything else (does not contain liv AND not active) -> use current_rank
+          else {
+            adjusted_rank = current_rank;
+            rank_flag = 'owgr'
+          }
+
+          if (!('full_name' in athlete)) {
+              const newNormalizedName = swapNameOrder(athlete.player_name);
+              combinedValue = `${adjusted_rank} - ${newNormalizedName}`;
+            } else {
+              combinedValue = `${adjusted_rank} - ${athlete.fullName}`;
+            }
+          
+          return {
+            ...athlete, // Copy all existing properties from the athlete object
+            owgr_rank: current_rank,
+            datagolf_rank: current_rank_dg,
+            playerSelection_name: combinedValue, // Add the new property
+            adjusted_rank: adjusted_rank,
+            rank_flag: rank_flag,
+            isActiveLIV: isActiveLIV,
+          }
+        });
+
+  return dataset_combinedValue
+
+}
+
+function get_preTourData_v2() {
+
+  const endpoint = `${SOURCEURL_DG}${ENDPT_PRD_PRE_TOUR}?${FILEFORMAT}${API_DG}`;
+
+  // --- 2. Fetch Response and Transform Data ---
+ try {
+    const response = UrlFetchApp.fetch(endpoint);
+    const json_response = response.getContentText();
+    const data = JSON.parse(json_response);
+    const baselineData = data.baseline_history_fit
+
+  const dataset = [];
+  const headers = ["id_athlete_dg",'make_cut','top_20','top_10','top_5','win'];
+
+    for (const player of baselineData) {
+      const newNormalizedName = swapNameOrder(player.player_name);
+    dataset.push([
+      player.dg_id,
+      //newNormalizedName,
+      //player.player_name ?? '',
+      player.make_cut ?? '',
+      player.top_20 ?? '',
+      player.top_10 ?? '',
+      player.top_5 ?? '',
+      player.win ?? '',
+    ]);
+  }
+
+  const finalArray = dataset.map(row => {
+    let obj = {};
+    headers.forEach((header, index) => {
+      // Convert date strings to Date objects for easy comparison
+      if (header.toLowerCase().includes('date')) {
+        obj[header] = row[index] ? new Date(row[index]) : null;
+      } else {
+        obj[header] = row[index];
+      }
+    });
+    return obj;
+  });
+
+
+  return finalArray
+
+  } catch (e) {
+    console.error(`Failed to fetch or process data: ${e.toString()}`);
+    // Log the stack trace for debugging
+    console.error(e.stack); 
+  }
+}
+
+// ----------------------------------------------------------------------------------
+
+function get_player_decomp() {
+  const endpoint = `${SOURCEURL_DG}${ENDPT_PRD_PLYR_DECOMP}?${FILEFORMAT}${API_DG}`;
+
+  console.log(endpoint)
+
+  const dataset = [];
+  const headers = ["id_athlete_dg", "players_final_pred"];
+
+  // --- Fetch Response ---
+ 
+    const response = UrlFetchApp.fetch(endpoint);
+    const json_response = response.getContentText();
+    const data = JSON.parse(json_response);
+    
+    // --- Loop and Data Processing (Much Cleaner!) ---
+    for (const player of data.players) {
+      // Use the safeGet helper to extract player-specific data
+      const players_data = [
+        safeGet(player, 'dg_id'),
+        safeGet(player, 'final_pred') || '',
+      ];    
+      dataset.push(players_data);
+    }
+
+  const finalArray = dataset.map(row => {
+    let obj = {};
+    headers.forEach((header, index) => {
+      // Convert date strings to Date objects for easy comparison
+      if (header.toLowerCase().includes('date')) {
+        obj[header] = row[index] ? new Date(row[index]) : null;
+      } else {
+        obj[header] = row[index];
+      }
+    });
+    return obj;
+  });
+
+  //const finalArray = mergeArrayData(dataArray, dgToEspnMap, espnToDgMap, 'id_athlete_dg')
+
+  return finalArray
+
+}
+
+function dg_get_field_updates_3(dgToEspnMap,espnToDgMap,currentEvent) {
+
+  const endpoint = `${SOURCEURL_DG}${ENDPT_FIELD_UPDATES}?${FILEFORMAT}${API_DG}`;
+
+  console.log(endpoint)
+
+  // --- 1. Fetch Data ---
+  let data;
+  try {
+    const response = UrlFetchApp.fetch(endpoint, { muteHttpExceptions: true });
+    if (response.getResponseCode() !== 200) {
+      throw new Error(`HTTP Error ${response.getResponseCode()}`);
+    }
+    data = JSON.parse(response.getContentText());
+  } catch (e) {
+    console.log(`Failed to fetch DataGolf field updates: ${e.message}`);
+    return;
+  }
+
+  const dataset = [];
+
+  const field = data.field;
+
+  // --- 2. Process Data ---
+
+  for (const player of field) {
+    dataset.push([
+      data.event_id ?? '',
+      data.event_name ?? '',
+      player.am ?? '',
+      player.dg_id ?? '',
+      player.early_late ?? '',
+      player.pga_number ?? '',
+      //player.r1_teetime ?? '',
+      //player.r2_teetime ?? '',
+      //player.r3_teetime ?? '',
+      //player.r4_teetime ?? '',
+      player.start_hole ?? '',
+      player.course ?? '',
+    ]);
+  }
+
+  const headers = ['id_event_dg', 'tournamentName','isAmateur', 'id_athlete_dg','early_late','pga_number','start_hole','course']
+  //const headers = ['current_round', 'event_id', 'event_name','isAmateur', 'id_athlete_dg','early_late','pga_number','r1_teetime','r2_teetime','r3_teetime','r4_teetime','start_hole','course']
+
+  const outputArray = dataset.map(row => {
+    let obj = {};
+    headers.forEach((header, index) => {
+      // Convert date strings to Date objects for easy comparison
+      if (header.toLowerCase().includes('date')) {
+        obj[header] = row[index] ? new Date(row[index]) : null;
+      } else {
+        obj[header] = row[index];
+      }
+    });
+    return obj;
+  });
+
+  const dataset_espn_id = mergeArrayData(outputArray, dgToEspnMap, espnToDgMap, 'id_athlete_dg')
+
+  const finalDataset = dataset_espn_id.map(player => {
+    return {
+      ...player,
+      'id_tournament': currentEvent.id_tournament,
+      'id_event': currentEvent.id_event,
+      'year': currentEvent.year,
+      'displayName': currentEvent.tournamentName,
+      'league': currentEvent.league,
+    };
+  });
+
+  return finalDataset
+
+}
+
+function get_skill_ratings() {
+
+  const api_params = {
+    display: 'rank'
+  }
+
+  const queryParams = Object.entries(api_params)
+    .map(([key, value]) => `${key}=${value}`)
+    .join('&');
+
+  const endpoint = `${SOURCEURL_DG}${ENDPT_PRD_SKILL_RATE}?${queryParams}&${FILEFORMAT}${API_DG}`;
+
+  console.log(endpoint)
+
+  const dataset = [];
+  const headers = ["id_athlete_dg", "driving_acc",'driving_dist','sg_app','sg_arg','sg_ott','sg_putt','sg_total'];
+
+  // --- Fetch Response ---
+ 
+    const response = UrlFetchApp.fetch(endpoint);
+    const json_response = response.getContentText();
+    const data = JSON.parse(json_response);
+    const field = data.players;
+    
+  for (const player of field) {
+    dataset.push([
+      player.dg_id ?? '',
+      player.driving_acc ?? '',
+      player.driving_dist ?? '',
+      player.sg_app ?? '',
+      player.sg_arg ?? '',
+      player.sg_ott ?? '',
+      player.sg_putt ?? '',
+      player.sg_total ?? '',
+    ]);
+  }
+
+  const finalArray = dataset.map(row => {
+    let obj = {};
+    headers.forEach((header, index) => {
+      // Convert date strings to Date objects for easy comparison
+      if (header.toLowerCase().includes('date')) {
+        obj[header] = row[index] ? new Date(row[index]) : null;
+      } else {
+        obj[header] = row[index];
+      }
+    });
+    return obj;
+  });
+
+  //const finalArray = mergeArrayData(dataArray, dgToEspnMap, espnToDgMap, 'id_athlete_dg')
+
+  return finalArray
+
+}
+
+
+
+
+function swapNameOrder(fullName) {
+  // Check if the input is a string and contains a comma separator
+  if (typeof fullName !== 'string' || !fullName.includes(',')) {
+    // If not in the expected format (no comma), return the original input
+    return fullName;
+  }
+
+  // 1. Split the string at ALL commas. 
+  // Example: "Smith, John, Jr." -> ["Smith", " John", " Jr."]
+  var parts = fullName.split(',');
+
+  // The function requires at least two parts (Last Name and First Name)
+  if (parts.length < 2) {
+    return fullName;
+  }
+  
+  // 2. The Last Name is always the first part (and we remove it from the array).
+  //    .shift() removes the first element and returns it. We trim() to clean spaces.
+  var lastName = parts.shift().trim(); 
+
+  // 3. Trim all remaining parts (First Name, Middle Name, Suffix, etc.)
+  //    .map() creates a new array where all elements have been trimmed.
+  var remainingParts = parts.map(function(part) {
+    return part.trim();
+  });
+  // Example: [" John", " Jr."] becomes ["John", "Jr."]
+
+  // 4. Join the remaining parts back together with a single space separator.
+  var firstNameAndOtherNames = remainingParts.join(' '); 
+  // Example: "John Jr."
+
+  // 5. Recombine them in the desired order: "First Name Other Names Last Name"
+  var newName = firstNameAndOtherNames + ' ' + lastName;
+  
+  return newName;
+}
+
+function get_espn_rankings_v2() {
+
+  const headers = ['id_athlete_espn',	'current_rank',	'prior_rank','rank_trend', 'total_points',	'gained_points',	'lost_points',	'average_points',	'total_events']
+
+  const league = 'all'
+  const dataType = 'rankings'
+  const dataType2 = '1'
+
+  const endpoint = `${SOURCEURL_ESPN}/v2/sports/${SPORT}/leagues/${league}/seasons/${YEAR}/${dataType}/${dataType2}/dates`;
+
+  // --- 2. Fetch Latest Week URL ---
+  let week_url;
+  try {
+    let response = UrlFetchApp.fetch(endpoint, { muteHttpExceptions: true });
+    if (response.getResponseCode() !== 200) {
+      throw new Error(`HTTP Error ${response.getResponseCode()} on main endpoint.`);
+    }
+    const data = JSON.parse(response.getContentText());
+    
+    // Safely get the latest week's reference URL
+    week_url = data.items?.[0]?.$ref;
+    if (!week_url) {
+      console.log("Error: Could not find latest week URL in rankings endpoint response.");
+      return;
+    }
+  } catch (e) {
+    console.log(`Failed to fetch initial ranking endpoint: ${e.message}`);
+    return;
+  }
+
+  // --- 3. Fetch Weekly Rankings Data ---
+  let rankData;
+  
+  try {
+    let response = UrlFetchApp.fetch(week_url, { muteHttpExceptions: true });
+    if (response.getResponseCode() !== 200) {
+      throw new Error(`HTTP Error ${response.getResponseCode()} on weekly URL.`);
+    }
+    const data = JSON.parse(response.getContentText());
+    rankData = data.ranks || [];
+
+  } catch (e) {
+    console.log(`Failed to fetch weekly rankings data: ${e.message}`);
+    return;
+  }
+
+  // --- 4. Process Ranking Entries ---
+  const dataset = [];
+  const ATHLETE_ID_REGEX = /athletes\/(\d+)/;
+
+  for (const temp of rankData) {
+    const current = temp.current ?? '';
+    const previous = temp.previous ?? '';
+    const trend = temp.trend ?? '';
+    
+    // Extract athlete ID using regex
+    let athlete_id = '';
+    const athleteRef = temp.athlete?.$ref;
+    if (athleteRef) {
+      const match = athleteRef.match(ATHLETE_ID_REGEX);
+      athlete_id = match ? match[1] : '';
+    }
+
+    // Safely extract stats
+    const stats = temp.record?.stats || [];
+    
+    // Assuming the stats are always in the same order as your original script:
+    const totalPoints = stats[0]?.value ?? '';
+    const gainedPoints = stats[1]?.value ?? '';
+    const lostPoints = stats[2]?.value ?? '';
+    const averagePoints = stats[3]?.value ?? '';
+    const totalEvents = stats[4]?.value ?? '';
+
+    // Push the final data row
+    dataset.push([
+      athlete_id, current, previous, trend, 
+      totalPoints, gainedPoints, lostPoints, averagePoints, totalEvents
+    ]);
+  }
+
+	const dataArray = dataset.map(row => {
+    let obj = {};
+    headers.forEach((header, index) => {
+      // Convert date strings to Date objects for easy comparison
+      if (header.toLowerCase().includes('date')) {
+        obj[header] = row[index] ? new Date(row[index]) : null;
+      } else {
+        obj[header] = row[index];
+      }
+    });
+    return obj;
+  });
+
+  return dataArray
+
+}
