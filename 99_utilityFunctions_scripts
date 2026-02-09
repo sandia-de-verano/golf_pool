@@ -1,0 +1,135 @@
+function createDgToEspnMap(rawLookupValues) {
+  const DG_ID_COL_INDEX = 1; // Column B (Index 1)
+  const ESPN_ID_COL_INDEX = 0; // Column A (Index 0)
+  
+  const dgToEspnMap = {};
+  
+  // Start from row 1 to skip the header row (index 0)
+  for (let i = 1; i < rawLookupValues.length; i++) {
+    const row = rawLookupValues[i];
+    
+    const dgId = row[DG_ID_COL_INDEX].toString();
+    const espnId = row[ESPN_ID_COL_INDEX].toString();
+    
+    // Check if both IDs exist (not null/undefined/empty string after conversion)
+    if (dgId && espnId) {
+      dgToEspnMap[dgId] = espnId;
+    }
+  }
+  
+  return dgToEspnMap;
+}
+
+function createEspnToDgMap(rawLookupValues) {
+  const DG_ID_COL_INDEX = 1; // Column B (Index 1)
+  const ESPN_ID_COL_INDEX = 0; // Column A (Index 0)
+  
+  const espnToDgMap = {};
+  
+  // Start from row 1 to skip the header row (index 0)
+  for (let i = 1; i < rawLookupValues.length; i++) {
+    const row = rawLookupValues[i];
+
+    // Explicitly convert IDs to strings before using them
+    const dgId = row[DG_ID_COL_INDEX].toString();
+    const espnId = row[ESPN_ID_COL_INDEX].toString();
+    
+    // Check if both IDs exist
+    if (dgId && espnId) {
+      espnToDgMap[espnId] = dgId;
+  }
+  }
+  return espnToDgMap;
+}
+
+function mergeArrayData(primaryDataArray, dgToEspnMap, espnToDgMap, mergeOn) {
+
+  // Declare variables using 'let' in the outer scope
+  let newHeader; 
+  let lookupMap; 
+  
+  // 1. Dynamic Variable Assignment (same as before)
+  if (mergeOn === 'id_athlete_espn') {
+    newHeader = 'id_athlete_dg';
+    lookupMap = espnToDgMap;
+  } else if (mergeOn === 'id_athlete_dg') {
+    newHeader = 'id_athlete_espn';
+    lookupMap = dgToEspnMap;
+  } else {
+    Logger.log(`Error: 'mergeOn' parameter must be 'id_athlete_espn' or 'id_athlete_dg'. Received: ${mergeOn}`);
+    return primaryDataArray;
+  }
+
+  // 2. Iterate and Merge
+  for (const rowObject of primaryDataArray) {
+    
+    // Get the source ID from the current row object.
+    const rawSourceId = rowObject[mergeOn]; //rawSourceId
+    const sourceId = rawSourceId ? rawSourceId.toString() : '';
+
+
+    const targetId = lookupMap[sourceId];
+     
+      if (targetId) {
+        rowObject[newHeader] = targetId; // targetId is already a string
+      } else {
+        rowObject[newHeader] = '';
+        Logger.log(`Warning: ${mergeOn} ID ${sourceId} not found in lookup table.`);
+      }
+    }
+
+  //Logger.log(`Successfully merged data onto the array of objects, ensuring string ID consistency.`);
+  return primaryDataArray;
+}
+
+// --- General Functions ---
+
+/** 	Use short-circuiting to check if obj exists AND if obj[key] exists.
+*		If either fails, it defaults to ''. 
+*/
+
+function safeGet(obj, key) {
+  // Use short-circuiting to check if obj exists AND if obj[key] exists.get_currentEvent
+  // If either fails, it defaults to ''.
+  return (obj && obj[key] !== undefined) ? obj[key] : '';
+}
+
+// --------------------------------------------------------------------------
+
+/**
+ * Returns the current event configuration from the lookup sheet.
+ * Consolidates the logic from getCurrentEvent, getCurrentEvent_2, and getCurrentEvent_3.
+ */
+function getCurrentEvent(sheet){
+  try {
+    const data = sheet.getDataRange().getValues();
+    if (data.length <= 1) {
+      //Logger.log(`Sheet contains no data besides headers.`);
+      return null;
+    }
+
+    const headers = data[0];
+    const values = data.slice(1);
+
+    const dataMapped = values.map(row => {
+      return headers.reduce((obj, header, index) => {
+        obj[header] = row[index];
+        return obj;
+      }, {});
+    });
+    const currentEvent = dataMapped.find(item => item.tourItem === 'current');
+    if (!currentEvent || !currentEvent.url_event) {
+    //console.log("getCurrentEvent: Could not find 'current' event in lookup table.");
+    return null;
+  }
+
+  return currentEvent;
+
+  } catch (e) {
+    Logger.log(`Error reading data from sheet: ${e.message}`);
+    return null;
+  }
+
+}
+
+// --------------------------------------------------------------------------
