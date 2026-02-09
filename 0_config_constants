@@ -1,0 +1,159 @@
+// --- CONFIGURATION CONSTANTS ---
+  const scriptProperties = PropertiesService.getScriptProperties();
+  const cache = CacheService.getScriptCache();
+
+// --- SpreadSheets ---
+  // --- Define Sheets ---
+  const SSDATAID = scriptProperties.getProperty('ssDataId');
+  const SSDATAID_ATHLETE = scriptProperties.getProperty('ssDataId_athlete');
+  //const SSDATAID_BETTING = scriptProperties.getProperty('ssDataId_betting');
+  const SSDATAID_HIST = scriptProperties.getProperty('ssDataId_hist');
+  //const SSDATAID_EARN = scriptProperties.getProperty('ssDataId_earn');
+  //const SSDATAID_POOL = scriptProperties.getProperty('ssDataId_pool');
+
+  // --- define ss ---
+  const SS_PRIMARY =  SpreadsheetApp.openById(SSDATAID);
+  const SS_ATHLETE =  SpreadsheetApp.openById(SSDATAID_ATHLETE);
+  //const SS_BETTING =  SpreadsheetApp.openById(SSDATAID_BETTING);
+  const SS_HIST =  SpreadsheetApp.openById(SSDATAID_HIST);
+  //const SS_EARNINGS =  SpreadsheetApp.openById(SSDATAID_EARN);
+  //const SS_POOL =  SpreadsheetApp.openById(SSDATAID_POOL);
+
+// --- URLS ---
+  const SOURCEURL_ESPN = scriptProperties.getProperty('sourceURL_espn');
+  const SOURCEURL_DG = scriptProperties.getProperty('sourceURL_dg');
+  const API_DG = scriptProperties.getProperty('api_dg');
+  const FILEFORMAT = scriptProperties.getProperty('fileFormat');
+  const URLSEG_SPORTS = scriptProperties.getProperty('urlSeg_sports');
+  const URLSEG_LEAGUES = scriptProperties.getProperty('urlSeg_leagues');
+  const URLSEG_PAGE = scriptProperties.getProperty('urlSeg_page');
+  const URLSEG_REGION = scriptProperties.getProperty('urlSeg_region');
+  const SPORT = scriptProperties.getProperty('sport');
+
+// --- Other Info ---
+  const TODAY = new Date();
+  const MONTH = TODAY.getMonth();
+  const DAY = TODAY.getDay();
+  let YEAR = TODAY.getFullYear();
+    if (MONTH === 0 && DAY < 7) {
+      YEAR = TODAY.getFullYear() - 1;
+    }
+  
+  const LEAGUES = ['champions-tour','eur','liv','lpga','pga','ntw','mens-olympics-golf','womens-olympics-golf','tgl','sga'];
+  const LEAGUE_URLS = [
+    'http://sports.core.api.espn.com/v2/sports/golf/leagues/pga',
+    'http://sports.core.api.espn.com/v2/sports/golf/leagues/eur',
+    'http://sports.core.api.espn.com/v2/sports/golf/leagues/liv',
+    'http://sports.core.api.espn.com/v2/sports/golf/leagues/lpga',
+    'http://sports.core.api.espn.com/v2/sports/golf/leagues/champions-tour',
+    'http://sports.core.api.espn.com/v2/sports/golf/leagues/ntw',
+    'http://sports.core.api.espn.com/v2/sports/golf/leagues/mens-olympics-golf',
+    'http://sports.core.api.espn.com/v2/sports/golf/leagues/womens-olympics-golf',
+    'http://sports.core.api.espn.com/v2/sports/golf/leagues/tgl',
+    'http://sports.core.api.espn.com/v2/sports/golf/leagues/sga',
+  ];
+  const TOUR_URLS = [
+    'http://sports.core.api.espn.com/v2/sports/golf/leagues/pga/tournaments/',
+    'http://sports.core.api.espn.com/v2/sports/golf/leagues/eur/tournaments/',
+    'http://sports.core.api.espn.com/v2/sports/golf/leagues/liv/tournaments/',
+    'http://sports.core.api.espn.com/v2/sports/golf/leagues/lpga/tournaments/',
+    'http://sports.core.api.espn.com/v2/sports/golf/leagues/champions-tour/tournaments/',
+    'http://sports.core.api.espn.com/v2/sports/golf/leagues/ntw/tournaments/',
+    'http://sports.core.api.espn.com/v2/sports/golf/leagues/mens-olympics-golf/tournaments/',
+    'http://sports.core.api.espn.com/v2/sports/golf/leagues/womens-olympics-golf/tournaments/',
+    'http://sports.core.api.espn.com/v2/sports/golf/leagues/tgl/tournaments/',
+    'http://sports.core.api.espn.com/v2/sports/golf/leagues/sga/tournaments/',
+  ];
+
+// --- Endpoints and sheets for DG ---
+  //const ENDPT_BET_MTCH_ALL = '/betting-tools/matchups-all-pairings';
+    //const SHT_BET_MTCH_ALL = global.setupSheet(SS_BETTING, 'bet_match_all');
+  //const ENDPT_BET_MTCH = '/betting-tools/matchups';
+    //const SHT_BET_MTCH = global.setupSheet(SS_BETTING, 'bet_match');
+  //const ENDPT_BET_OUT = '/betting-tools/outrights';
+    //const SHT_BET_OUTRIGHT = global.setupSheet(SS_BETTING, 'bet_outright');
+  const ENDPT_FIELD_UPDATES = '/field-updates';
+    //const SHT_FIELD_UPDATES = global.setupSheet(SS_BETTING, 'field_updates');
+  const ENDPT_PLYR_LIST = '/get-player-list';
+    //const SHT_PLYR_LIST = global.setupSheet(SS_BETTING, 'player_list');
+  const ENDPT_SCH = '/get-schedule';
+    //const SHT_DG_SCHEDULE = global.setupSheet(SS_BETTING, 'dg_schedule');
+  //const ENDPT_DFS_EVT = '/historical-dfs-data/event-list';
+    //const SHT_HIST_DFSEVENTS = global.setupSheet(SS_HIST, 'hist_dfs_events');
+  //const ENDPT_DFS_POINTS = '/historical-dfs-data/points';
+    //const SHT_HIST_DFSDATA = global.setupSheet(SS_HIST, 'hist_dfs_data');
+  //const ENDPT_ODDS_EVT = '/historical-odds/event-list';
+    //const SHT_HIST_ODDSEVENTS = global.setupSheet(SS_HIST, 'hist_odds_events');
+  //const ENDPT_ODDS_MTCH = '/historical-odds/matchups';
+    //const SHT_HIST_ODDS_MTCH = global.setupSheet(SS_HIST, 'hist_odds_match');
+  //const ENDPT_ODDS_OUT = '/historical-odds/outrights';
+    //const SHT_HIST_ODDS_OUT = global.setupSheet(SS_HIST, 'hist_odds_outright');
+  //const ENDPT_RAW_EVT = '/historical-raw-data/event-list';
+    //const SHT_HIST_RAW_EVT = global.setupSheet(SS_HIST, 'hist_rawEvent');
+  //const ENDPT_RAW_RNDS = '/historical-raw-data/rounds';
+    //const SHT_HIST_RAWROUND = global.setupSheet(SS_HIST, 'hist_rawRound');
+  const ENDPT_PRD_APPROACH_SKILL = '/preds/approach-skill';
+    //const SHT_PRD_SKILL = global.setupSheet(SS_BETTING, 'prd_approach_skill');
+  //const ENDPT_PRD_FNTSY = '/preds/fantasy-projection-defaults';
+    //const SHT_PRD_FNTSY = global.setupSheet(SS_BETTING, 'prd_fantasy');
+  const ENDPT_PRD_RANKS = '/preds/get-dg-rankings';
+    //const SHT_PRD_RANKS = global.setupSheet(SS_BETTING, 'prd_rankings');
+  const ENDPT_PRD_IN_PLAY = '/preds/in-play';
+    //const SHT_PRD_IN_PLAY = global.setupSheet(SS_BETTING, 'prd_in_play');
+  const ENDPT_PRD_LIVE_HOLE = '/preds/live-hole-stats';
+    //const SHT_PRD_LIVE_HOLE = global.setupSheet(SS_BETTING, 'prd_live_hole');
+  const ENDPT_PRD_LIVE_TOUR = '/preds/live-tournament-stats';
+    //const SHT_PRD_LIVE_TOUR = global.setupSheet(SS_BETTING, 'prd_live_tour');
+  const ENDPT_PRD_PLYR_DECOMP = '/preds/player-decompositions';
+    //const SHT_PRD_PLYR_DECOMP = global.setupSheet(SS_BETTING, 'prd_player_decomp');
+  //const ENDPT_PRD_PRE_TOUR_ARC = '/preds/pre-tournament-archive';
+    //const SHT_PRD_PRE_TOUR_ARC = global.setupSheet(SS_BETTING, 'prd_pre_tour_archive');
+  const ENDPT_PRD_PRE_TOUR = '/preds/pre-tournament';
+    //const SHT_PRD_PRE_TOUR = global.setupSheet(SS_BETTING, 'prd_pre_tour');
+  const ENDPT_PRD_SKILL_RATE = '/preds/skill-ratings';
+    //const SHT_PRD_SKILL_RATE = global.setupSheet(SS_BETTING, 'prd_skill_rating');
+
+
+
+  // --- define sheets ---
+
+
+  // Primary Data golfData_v2.1 (SS_PRIMARY)
+
+  const SHT_ATHLETES = global.setupSheet(SS_PRIMARY, 'athletes');
+  const SHT_PLAYERDATA = global.setupSheet(SS_PRIMARY, 'playerData');
+  const SHT_CALENDAR = global.setupSheet(SS_PRIMARY, 'calendar');
+  const SHT_LOOKUP_ATHLETES_ESPN_DG = global.setupSheet(SS_PRIMARY, 'lookup_athletes_espn_dg');
+  const SHT_LOOKUPTOURNAMENT = global.setupSheet(SS_PRIMARY, 'lookupTable');
+  const SHT_PLAYERLIVE = global.setupSheet(SS_PRIMARY, 'playerLive');
+  const SHT_PRIOREVENT_MONEY = global.setupSheet(SS_PRIMARY, 'priorEvent_money');
+  const SHT_PROJECTEDEARNINGS = global.setupSheet(SS_PRIMARY, 'projectedEarnings');
+  const SHT_RANKINGS = global.setupSheet(SS_PRIMARY, 'rankings');
+  const SHT_USERSELECTION = global.setupSheet(SS_PRIMARY, 'userSelections');
+  const SHT_VIEW_LEADERBOARD = global.setupSheet(SS_PRIMARY, 'view_leaderboard');
+  const SHT_UPDATE_USERSELECTIONS = global.setupSheet(SS_PRIMARY, 'update_userSelections'); 
+  const SHT_LIV_PLAYERS = global.setupSheet(SS_PRIMARY, 'liv_players');
+  const SHT_POOL_TOURNAMENTS = global.setupSheet(SS_PRIMARY, 'golfPool_tournaments'); 
+  const SHT_PROJ_EARNINGS_TABLE = global.setupSheet(SS_PRIMARY, 'predictiveEarnings');
+  const SHT_FINAL_EARNINGS = global.setupSheet(SS_PRIMARY, 'final_earnings');
+  const SHT_USER_RESULTS = global.setupSheet(SS_PRIMARY, 'user_detailed_results');
+  const SHT_COURSE_INFO = global.setupSheet(SS_PRIMARY, 'course_information');
+  const SHT_OVERALL_RESULTS = global.setupSheet(SS_PRIMARY, 'hist_overallResults');
+  const SHT_WEATHER_FORECAST = global.setupSheet(SS_PRIMARY, 'weather_forecast');
+  const SHT_WEATHER_CURRENT = global.setupSheet(SS_PRIMARY, 'weather_current');
+
+  const SHT_PLAYER_STATS = global.setupSheet(SS_PRIMARY, 'player_stats');
+
+  const SHT_TEST = global.setupSheet(SS_PRIMARY, 'test_sheet');
+  const SHT_TEST_2 = global.setupSheet(SS_PRIMARY, 'test_sheet_2');
+
+  // ESPN Historical data in SS_HIST
+
+  const SHT_EVENTS = global.setupSheet(SS_HIST, 'events');
+  const SHT_HIST_TOUR_YEAR = global.setupSheet(SS_HIST, 'years_tournament');
+  const SHT_HIST_TOUR_ID = global.setupSheet(SS_HIST, 'id_tournament');
+  const SHT_HIST_TOUR_DTL = global.setupSheet(SS_HIST, 'tournaments');
+  const SHT_HIST_EVT_ID = global.setupSheet(SS_HIST, 'id_event');
+  const SHT_HIST_ESPNVENUE = global.setupSheet(SS_HIST, 'espn_venue');
+  const SHT_HIST_VENUES = global.setupSheet(SS_HIST, 'venues');
+
