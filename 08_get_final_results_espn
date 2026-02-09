@@ -1,0 +1,291 @@
+function get_final_earnings() {
+
+   const currentEvent = getCurrentEvent(SHT_LOOKUPTOURNAMENT);
+      if (!currentEvent) return;
+      const id_event = currentEvent.id_event.toString()
+			const id_tournament = currentEvent.id_tournament.toString()
+      const url_event = currentEvent.url_event
+			const year = currentEvent.year
+
+  const player_data_raw = global.readSheetData(SHT_PLAYERDATA);
+
+  const prj_earn_table_raw = SHT_PROJ_EARNINGS_TABLE.getRange(1,8,SHT_PROJ_EARNINGS_TABLE.getLastRow(),2).getValues();
+    const prj_earn_table_values = prj_earn_table_raw.slice(1);
+    const prj_earn_table_headers = ['order','projected_earnings'];
+
+  let prj_earn_table
+    prj_earn_table = add_keys(prj_earn_table_values,prj_earn_table_headers)
+    prj_earn_table = prj_earn_table.filter(obj => obj.order.toString().trim() !== '');
+
+  const prizeMap = prj_earn_table.reduce((acc, curr) => {
+    acc[curr.order] = curr.projected_earnings;
+    return acc;
+  }, {});
+
+
+  let all_urls = []
+  let athlete_info = [];
+  let athlete_info_keys
+
+  try {
+    const eventResponse = UrlFetchApp.fetch(url_event, { muteHttpExceptions: true });
+    const eventData = JSON.parse(eventResponse.getContentText());
+    const competitorsSummary = eventData.competitions?.[0]?.competitors || [];
+
+    if (eventData?.status?.type?.name != 'STATUS_FINAL' ) {
+      console.log('Event not final');
+      return; 
+    } 
+
+// --------------------------------
+
+    for (const comp of competitorsSummary) {
+      
+			const id_athlete_espn = comp.id.toString();
+			const earnings = comp.earnings || 0;
+			const projected_earnings = 0;
+			const round = 4
+      const r1_score = 0;
+      const r2_score = 0;
+      const r3_score = 0;
+      const r4_score = 0;
+      const r1_teetime = 0;
+      const r2_teetime = 0;
+      const r3_teetime = 0;
+      const r4_teetime = 0;
+      const early_late = 0;
+      const start_hole = 0;
+      const predicted_round_score = 0;
+      const sg_t2g = 0;
+      const sg_bs = 0;
+      const gir = 0;
+      const prox_fw = 0; 
+      const prox_rgh = 0;
+      const scrambling = 0;
+      const great_shots = 0;
+      const poor_shots = 0;
+      const distance = 0;
+      const accuracy = 0;
+      
+      athlete_info.push([id_tournament,id_event,year,id_athlete_espn,round,earnings,projected_earnings,r1_score,
+      r2_score,
+      r3_score,
+      r4_score,
+      r1_teetime,
+      r2_teetime,
+      r3_teetime,
+      r4_teetime,
+      early_late,
+      start_hole,
+      predicted_round_score,
+      sg_t2g,
+      sg_bs,
+      gir,
+      prox_fw, 
+      prox_rgh,
+      scrambling,
+      great_shots,
+      poor_shots,
+      distance,
+      accuracy,
+      ])
+    }
+
+    headers_ath_info = [
+			'id_tournament',
+      'id_event',
+			'year',
+			'id_athlete_espn',
+			'current_round',
+      'earnings', 
+			'projected_earnings',
+      'r1_score',
+      'r2_score',
+      'r3_score',
+      'r4_score',
+      'r1_teetime',
+      'r2_teetime',
+      'r3_teetime',
+      'r4_teetime',
+      'early_late',
+      'start_hole',
+      'predicted_round_score',
+      'sg_t2g',
+      'sg_bs',
+      'gir',
+      'prox_fw', 
+      'prox_rgh',
+      'scrambling',
+      'great_shots',
+      'poor_shots',
+      'distance',
+      'accuracy',
+    ];
+
+  ath_info_keys = add_keys(athlete_info,headers_ath_info)
+
+// ------------------------------------
+
+    for (const comp of competitorsSummary) {
+      const url_score = comp.score?.$ref || '';
+      const url_status = comp.status?.$ref || '';
+      
+      all_urls.push(url_score,url_status)
+    }
+
+  } catch (e) {
+    console.log(`Error fetching competitor summaries: ${e.message}`);
+  }
+
+  const sample = all_urls.slice(0,4)
+  const flat_all_urls = all_urls.flat()
+
+    if (flat_all_urls.length === 0 ) {
+      console.log('no competitors at espn');
+      return; 
+  } 
+
+  console.log(`all_urls: ${flat_all_urls.length}`)
+  console.log(`athlete_info: ${ath_info_keys[0]}`)
+  
+  const batch_size = 50
+  const fetched_data =  batchfetch_v2(flat_all_urls,batch_size)
+  const parsed_data = hist_parseDataESPN_results(fetched_data)
+
+  console.log(parsed_data[0])
+
+  const espn_data = merge_data_non_unique(ath_info_keys,parsed_data)
+  const merge_player_data = merge_live_data_espn_id(espn_data,player_data_raw)
+
+  const merged_data_earn = calculateGolfWinnings(merge_player_data, prizeMap)
+
+const fieldsForLookup = [
+      'id_tournament',
+      'id_event',
+      'id_event_dg',
+      'year',
+      'id_athlete_dg',
+      'id_athlete_espn',
+      'fullName',
+      'isAmateur',
+      'adjusted_rank',
+      'current_round',
+      'current_position',
+      'current_score',
+      'thru',
+      'today',
+      'r1_score',
+      'r2_score',
+      'r3_score',
+      'r4_score',
+      'r1_teetime',
+      'r2_teetime',
+      'r3_teetime',
+      'r4_teetime',
+      'early_late',
+      'start_hole',
+      'total_points',
+      'gained_points',
+      'lost_points',
+      'average_points',
+      'total_events',
+      'make_cut',
+      'top_20',
+      'top_10',
+      'top_5',
+      'win',
+      'players_final_pred',
+      'predicted_round_score',
+      'earnings', 
+      'projected_earnings',
+      'distance',
+      'accuracy',
+      'sg_app',
+      'sg_arg',
+      'sg_ott',
+      'sg_putt',
+      'sg_t2g',
+      'sg_bs',
+      'sg_total',
+      'gir',
+      'prox_fw', 
+      'prox_rgh',
+      'scrambling',
+      'great_shots',
+      'poor_shots',
+      'playerSelection_name',
+      'last_updated'
+  ];
+
+  const finalDataset = createFinalOutput(merged_data_earn,fieldsForLookup)
+
+    const finalDataset_time_stamp = finalDataset.map(item => ({
+      ...item, // This "spreads" the existing keys (name, earnings, etc.)
+      last_updated: new Date().toLocaleString() // Adds the new one
+    }));
+
+    finalDataset_time_stamp.sort((a, b) => a.adjusted_rank - b.adjusted_rank);
+    finalDataset_time_stamp.sort((a, b) => a.current_score - b.current_score);
+
+  //SHT_TEST.clearContents();
+  //global.setValues_keys(finalDataset_time_stamp,//SHT_TEST)
+
+  SHT_PLAYERLIVE.clearContents();
+  global.setValues_keys(finalDataset_time_stamp,SHT_PLAYERLIVE)
+
+  update_pool_leaderboard()
+
+}
+
+
+function hist_parseDataESPN_results(dataArray) {
+  const finalDataset = [];
+
+  if (!dataArray || dataArray.length === 0) {
+    return [];
+  }
+
+  for (let i = 0; i < dataArray.length; i++) {
+    const item = dataArray[i];
+    const sourceRow = item.source;
+    const response = item.response;
+
+    let data;
+    try {
+      data = JSON.parse(response.getContentText());
+    } catch (e) {
+      const errorMsg = `JSON Parsing error: ${e.toString()}`;
+      console.error(`Error parsing JSON for ${sourceRow.url_event}: ${errorMsg}`);
+      continue;
+    }
+
+    const id_athlete_espn = parseUrl_athlete(sourceRow).toString();
+    const current_position = data.position?.displayName ? data.position?.displayName : ''
+    const thru = data.thru? data.thru: ''
+    const over_under_score = data.completedRoundsDisplayValue  ? data.completedRoundsDisplayValue : ''
+
+    const rowData = [
+      id_athlete_espn,
+      current_position, 
+      thru, 
+      over_under_score,
+    ];
+
+    finalDataset.push(rowData);
+  }
+
+  headers = [
+      'id_athlete_espn',
+      'current_position', 
+      'thru', 
+      'current_score',
+    ];
+
+  const final_data_keys = add_keys(finalDataset,headers)
+
+  const final_data_de_dup = mergeArrayById(final_data_keys,'id_athlete_espn')
+
+  return final_data_de_dup;
+}
+
+
