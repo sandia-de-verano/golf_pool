@@ -113,6 +113,7 @@ const fieldsForLookup = [
       'id_event',
       'id_event_dg',
       'year',
+      'isPoolEvent',
       'id_athlete_dg',
       'id_athlete_espn',
       'fullName',
