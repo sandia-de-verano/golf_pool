@@ -1,18 +1,17 @@
-function update_pool_leaderboard() {
-
+function update_pool_leaderboard(playerLiveResults) {
   const currentEvent = getCurrentEvent(SHT_LOOKUPTOURNAMENT);
     if (!currentEvent) return;
   const id_event = currentEvent.id_event;
-  //const id_event = '401811930'
 
   const player_rankings = global.readSheetData(SHT_RANKINGS);
-
   const player_selection_data = global.readSheetData(SHT_PLAYERDATA);
-  //const player_live_data = global.readSheetData(SHT_TEST);
-  const player_live_data = global.readSheetData(SHT_PLAYERLIVE);
-    const live_proj_earn_sum = sumField(player_live_data, 'projected_earnings');
-    const earnings_sum = sumField(player_live_data, 'earnings');
   const user_selection_data = global.readSheetData(SHT_UPDATE_USERSELECTIONS);
+
+  // Use the passed parameter instead of reading the sheet again
+  const player_live_data = playerLiveResults; 
+  
+  const live_proj_earn_sum = sumField(player_live_data, 'projected_earnings');
+  const earnings_sum = sumField(player_live_data, 'earnings');
 
   // 1. Filter User Selections
   const filt_user_selection_data = user_selection_data.filter(item => 
@@ -214,10 +213,10 @@ slots.forEach(slot => {
   // --- 5. Write Output to a New Sheet ---
 
   SHT_VIEW_LEADERBOARD.clearContents();
-  global.setValues(finalOutput,SHT_VIEW_LEADERBOARD,header_pool)
+  global.setValues(finalOutput, SHT_VIEW_LEADERBOARD, header_pool);
 
-  create_update_leaderboards()
-  update_detailed_results_history()
+  //create_update_leaderboards()
+  update_detailed_results_history(finalOutput);
 
 }
 
