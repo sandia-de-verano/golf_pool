@@ -1,54 +1,48 @@
 function leaderboard_flow () {
-
   const currentEvent = getCurrentEvent(SHT_LOOKUPTOURNAMENT);
-    const start_date = currentEvent.adj_start_date
-    const end_date = currentEvent.adj_end_date
-    const date_status = checkDateStatus(start_date) // checks if event has started
-    const date_end_status = checkDateStatus(end_date)
+  if (!currentEvent) return;
 
   const leaderboard = global.readSheetData(SHT_VIEW_LEADERBOARD);
-    const earn_flag = leaderboard[0].earn_flag || ''
+    if (!leaderboard || leaderboard.length === 0) return;
 
-  // check if finalized
-  if (earn_flag === 'final' && date_status === false && date_end_status === false) {
-      console.log('data final: final, false - ', earn_flag,date_status,date_end_status);
-      return; 
-  } 
+const earn_flag = leaderboard[0].earn_flag || '';
 
-  // if not finalized, check if DG is providing data, if so run get live data
-  const player_live = global.readSheetData(SHT_PLAYERLIVE);
-  const is_blank_curr_round = isKeyFieldBlank(player_live, "current_round")
-  const is_blank_thru = isKeyFieldBlank(player_live, "thru")
-  const is_blank_today = isKeyFieldBlank(player_live, "today")
-  const recent_update = checkRecentUpdates(player_live)
+// Recognize both final states to stop the script
+if ((earn_flag === 'final' || earn_flag === 'final_non_pool') && 
+     date_status === false && date_end_status === false) {
+    console.log('Tournament finished (Status: ' + earn_flag + '). Stopping updates.');
+    return; 
+}
 
-  if (!date_end_status && earn_flag !== 'final') {
-      console.log('In the gap: Tournament ended, waiting for ESPN final status.');
-      
-      // Attempt to run final earnings. 
-      // If ESPN isn't ready, it will log "Event not final" and exit safely.
-      get_final_earnings(); 
-      return;
+  const start_date = currentEvent.adj_start_date;
+  const end_date = currentEvent.adj_end_date;
+  const date_end_status = checkDateStatus(end_date); // true if BEFORE end date
+  const has_started = !checkDateStatus(start_date); 
+  const is_ongoing = checkDateStatus(end_date);
+
+  if (!leaderboard || leaderboard.length === 0) return;
+
+
+  // 2. Gate: Frequency Limit (e.g., only update every 10 minutes)
+  const update_needed = isUpdateNeeded(player_live, 10); // Helper below
+  if (!update_needed) {
+    console.log('Data updated recently. Skipping fetch.');
+    return;
   }
 
-  if (is_blank_thru && is_blank_curr_round && date_status && date_end_status ) {
-    console.log('get live data, pre tour: true, true, true, true - ',is_blank_thru,is_blank_curr_round, date_status, date_end_status);
-    console.log('running live data')
+  // 3. Conditional Fetch Logic
+  if (has_started && is_ongoing) {
+    console.log('Tournament ongoing: Running live Data Golf updates.');
     get_live_data_again(); 
-
-  } else if (is_blank_thru === false && is_blank_curr_round === false && date_end_status ) {
-    console.log('get live data, during tour: false, false, true - ',is_blank_thru,is_blank_curr_round, date_end_status);
-    console.log('running live data')
-    get_live_data_again();
-
-  } else if (recent_update === false && is_blank_curr_round && is_blank_thru && is_blank_today && date_status === false && date_end_status === false) {
-    console.log('get final data, false, true, true, true, false - ',recent_update,is_blank_thru,is_blank_curr_round,is_blank_today, date_status );
-    console.log('running final earnings')
-    get_final_earnings();
-    
   } 
-
+  else if (!is_ongoing) {
+    console.log('Tournament ended: Polling ESPN for final earnings.');
+    get_final_earnings();
+  } else {
+    console.log('Tournament has not started yet.');
+  }
 }
+
 
 // --------------------------------------------------------
 function isKeyFieldBlank(dataArray, keyName) {
@@ -84,18 +78,36 @@ function checkRecentUpdates(dataArray) {
 
 function checkDateStatus(target_date) {
   const today = new Date();
-  const targetDate = target_date
+  
+  // Ensure targetDate is a Date object, even if a string was passed
+  const targetDate = new Date(target_date);
 
-  // Compare using .getTime()
-  let date_status
-  if (today.getTime() < targetDate.getTime()) {
-    date_status = true
-    //console.log("Today is before the target date.");
-    // Run your 'pool' logic here
-  } else {
-    date_status = false
-    //console.log("The target date has passed or is today.");
+  // Check if the date is valid before calling .getTime()
+  if (isNaN(targetDate.getTime())) {
+    console.error("Invalid date passed to checkDateStatus:", target_date);
+    return false; 
   }
 
-  return date_status
+  let date_status;
+  if (today.getTime() < targetDate.getTime()) {
+    date_status = true; // Today is BEFORE the target date
+  } else {
+    date_status = false; // Target date has passed or is today
+  }
+
+  return date_status;
+}
+
+function isUpdateNeeded(dataArray, minutes) {
+  if (!dataArray || dataArray.length === 0) return true;
+  
+  const now = new Date().getTime();
+  const threshold = minutes * 60 * 1000;
+
+  // Check the last_updated field of the first item
+  const lastUpdateStr = dataArray[0].last_updated;
+  if (!lastUpdateStr) return true;
+
+  const lastUpdateTime = new Date(lastUpdateStr).getTime();
+  return (now - lastUpdateTime) > threshold;
 }
