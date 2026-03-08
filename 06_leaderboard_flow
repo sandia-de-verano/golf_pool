@@ -17,10 +17,19 @@ function leaderboard_flow () {
 
   // if not finalized, check if DG is providing data, if so run get live data
   const player_live = global.readSheetData(SHT_PLAYERLIVE);
-    const is_blank_curr_round = isKeyFieldBlank(player_live, "current_round")
-    const is_blank_thru = isKeyFieldBlank(player_live, "thru")
-    const is_blank_today = isKeyFieldBlank(player_live, "today")
-    const recent_update = checkRecentUpdates(player_live)
+  const is_blank_curr_round = isKeyFieldBlank(player_live, "current_round")
+  const is_blank_thru = isKeyFieldBlank(player_live, "thru")
+  const is_blank_today = isKeyFieldBlank(player_live, "today")
+  const recent_update = checkRecentUpdates(player_live)
+
+  if (!date_end_status && earn_flag !== 'final') {
+      console.log('In the gap: Tournament ended, waiting for ESPN final status.');
+      
+      // Attempt to run final earnings. 
+      // If ESPN isn't ready, it will log "Event not final" and exit safely.
+      get_final_earnings(); 
+      return;
+  }
 
   if (is_blank_thru && is_blank_curr_round && date_status && date_end_status ) {
     console.log('get live data, pre tour: true, true, true, true - ',is_blank_thru,is_blank_curr_round, date_status, date_end_status);
