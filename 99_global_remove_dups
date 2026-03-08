@@ -1,0 +1,4 @@
+function removeDups(array) {
+  const flatArray = array.map(innerArray => innerArray[0])
+  return [...new Set(flatArray)];
+}
