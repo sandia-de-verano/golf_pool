@@ -1,0 +1,8 @@
+function setupSheet(ss, sheetName) {
+  let sheet = ss.getSheetByName(sheetName);
+  if (!sheet) {
+    sheet = ss.insertSheet(sheetName);
+    Logger.log(`Created new sheet: ${sheetName}`);
+  }
+  return sheet;
+}
