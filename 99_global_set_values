@@ -1,0 +1,136 @@
+function setValues(dataset,targetSheet,headers) {
+  const outputArray = [];
+    outputArray.push(headers);
+    outputArray.push(...dataset);
+  try {
+    // Determine the target range size
+    const numRows = outputArray.length;
+    const numCols = outputArray[0].length;
+
+    const lastRow = targetSheet.getLastRow();
+    const lastCol = targetSheet.getLastColumn();
+    const targetRange = targetSheet.getRange(lastRow+1, 1, numRows, numCols);
+    
+    // setValues() is the fastest way to write data to a sheet.
+    targetRange.setValues(outputArray);
+
+    targetSheet.getRange(1, 1, 1, numCols).setFontWeight('bold');
+
+    console.log("Successfully pushed %s rows and %s columns to the sheet.", numRows - 1, numCols);
+    
+  } catch (e) {
+    Logger.log("Error in setValues: %s", e.toString());
+  }
+
+}
+// -----------------------------------------------------
+
+function setValues_specificTarget(dataset,targetSheet,headers,startRow,startCol) {
+  const outputArray = [];
+    outputArray.push(headers);
+    outputArray.push(...dataset);
+  try {
+    // Determine the target range size
+    const numRows = outputArray.length;
+    const numCols = outputArray[0].length;
+    const targetRange = targetSheet.getRange(startRow, startCol, numRows, numCols);
+    
+    // setValues() is the fastest way to write data to a sheet.
+    targetRange.setValues(outputArray);
+
+    targetSheet.getRange(startRow, startCol, 1, numCols).setFontWeight('bold');
+
+    console.log("Successfully pushed %s rows and %s columns to the sheet.", numRows - 1, numCols);
+    
+  } catch (e) {
+    Logger.log("Error in setValues: %s", e.toString());
+  }
+
+}
+// -----------------------------------------------------
+
+function setValues_keys(dataset, targetSheet) {
+try {
+  if (!dataset || dataset.length === 0) {
+    Logger.log('JSON array is empty.');
+    return;
+  }
+
+  const flattenedData = dataset.map(item => flattenObject(item));
+
+  let headers = new Set();
+  flattenedData.forEach(item => {
+    Object.keys(item).forEach(key => headers.add(key));
+  });
+  
+  headers = Array.from(headers);
+
+  // 3. Convert the flattened objects into a 2D array for setValues()
+  const rows = flattenedData.map(item => {
+    // For each row, map the unique headers to the corresponding value in the flattened object.
+    // If the key is missing in the object, use an empty string.
+    return headers.map(header => (item.hasOwnProperty(header) ? item[header] : ''));
+  });
+
+  // Add the headers as the first row
+  rows.unshift(headers);
+
+  // 4. Batch Write to the Sheet
+  const numRows = rows.length;
+  const numCols = headers.length;
+  const numRows_target = targetSheet.getLastRow + 1
+  
+  // Clear existing content and set new data efficiently
+  const targetRange = targetSheet.getRange(1, 1, numRows, numCols);
+  targetRange.setValues(rows);
+
+  Logger.log(`Successfully wrote ${numRows} rows and ${numCols} columns to the sheet.`);
+} catch (e) {
+  console.log(`[ERROR] setValues_keys: ${e.message} at line ${e.lineNumber}`);
+}
+
+}
+
+// -----------------------------------------------------
+
+function setValues_keys_specificTarget(dataset, targetSheet,startRow,startCol) {
+try {
+  if (!dataset || dataset.length === 0) {
+    Logger.log('JSON array is empty.');
+    return;
+  }
+
+  const flattenedData = dataset.map(item => flattenObject(item));
+
+  let headers = new Set();
+  flattenedData.forEach(item => {
+    Object.keys(item).forEach(key => headers.add(key));
+  });
+  
+  headers = Array.from(headers);
+
+  // 3. Convert the flattened objects into a 2D array for setValues()
+  const rows = flattenedData.map(item => {
+    // For each row, map the unique headers to the corresponding value in the flattened object.
+    // If the key is missing in the object, use an empty string.
+    return headers.map(header => (item.hasOwnProperty(header) ? item[header] : ''));
+  });
+
+  // Add the headers as the first row
+  rows.unshift(headers);
+
+  // 4. Batch Write to the Sheet
+  const numRows = rows.length;
+  const numCols = headers.length;
+ 
+  // set new data efficiently
+  const targetRange = targetSheet.getRange(startRow, startCol, numRows, numCols);
+  targetRange.setValues(rows);
+
+  targetSheet.getRange(startRow, startCol, 1, numCols).setFontWeight('bold');
+
+  Logger.log(`Successfully wrote ${numRows} rows and ${numCols} columns to the sheet.`);
+} catch (e) {
+  console.log(`[ERROR] setValues_keys_specificTarget: ${e.message} at line ${e.lineNumber}`);
+}
+}
