@@ -43,12 +43,9 @@ function createEspnToDgMap(rawLookupValues) {
 }
 
 function mergeArrayData(primaryDataArray, dgToEspnMap, espnToDgMap, mergeOn) {
-
-  // Declare variables using 'let' in the outer scope
-  let newHeader; 
+  let newHeader;
   let lookupMap; 
   
-  // 1. Dynamic Variable Assignment (same as before)
   if (mergeOn === 'id_athlete_espn') {
     newHeader = 'id_athlete_dg';
     lookupMap = espnToDgMap;
@@ -60,25 +57,26 @@ function mergeArrayData(primaryDataArray, dgToEspnMap, espnToDgMap, mergeOn) {
     return primaryDataArray;
   }
 
-  // 2. Iterate and Merge
+  // Check if lookupMap itself is undefined before starting the loop
+  if (!lookupMap) {
+    Logger.log("Error: lookupMap is undefined. Check if mapping objects are being passed correctly.");
+    return primaryDataArray;
+  }
+
   for (const rowObject of primaryDataArray) {
-    
-    // Get the source ID from the current row object.
-    const rawSourceId = rowObject[mergeOn]; //rawSourceId
+    const rawSourceId = rowObject[mergeOn];
     const sourceId = rawSourceId ? rawSourceId.toString() : '';
 
-
-    const targetId = lookupMap[sourceId];
-     
-      if (targetId) {
-        rowObject[newHeader] = targetId; // targetId is already a string
-      } else {
-        rowObject[newHeader] = '';
-        Logger.log(`Warning: ${mergeOn} ID ${sourceId} not found in lookup table.`);
-      }
+    // FIX: Check if the sourceId exists as a key in the map
+    if (sourceId && lookupMap.hasOwnProperty(sourceId)) {
+      rowObject[newHeader] = lookupMap[sourceId];
+    } else {
+      rowObject[newHeader] = ''; // Default to empty if not found
+      // Optional: Log only once or selectively to avoid flooding logs
+      // Logger.log(`Warning: ID ${sourceId} not found in map.`);
     }
+  }
 
-  //Logger.log(`Successfully merged data onto the array of objects, ensuring string ID consistency.`);
   return primaryDataArray;
 }
 
@@ -100,36 +98,118 @@ function safeGet(obj, key) {
  * Returns the current event configuration from the lookup sheet.
  * Consolidates the logic from getCurrentEvent, getCurrentEvent_2, and getCurrentEvent_3.
  */
-function getCurrentEvent(sheet){
+function getCurrentEvent(sheet) {
+  const cacheKey = "current_event_data";
+  const cachedData = cache.get(cacheKey); // cache is defined in 0_config_constants
+
+  if (cachedData) {
+    return JSON.parse(cachedData);
+  }
+
   try {
     const data = sheet.getDataRange().getValues();
-    if (data.length <= 1) {
-      //Logger.log(`Sheet contains no data besides headers.`);
-      return null;
+      if (data.length <= 1) return null;
+
+      const headers = data[0];
+      const values = data.slice(1);
+      
+      // Create a Map where the key is the 'tourItem' status (e.g., 'current')
+      const eventMap = new Map(values.map(row => {
+        const obj = headers.reduce((acc, header, idx) => {
+          acc[header] = row[idx];
+          return acc;
+        }, {});
+        return [obj.tourItem, obj];
+      }));
+    const currentEvent = eventMap.get('current') || null;
+    
+    if (currentEvent && currentEvent.url_event) {
+      // Store in cache for 1 hour (3600 seconds)
+      cache.put(cacheKey, JSON.stringify(currentEvent), 14300);
+      return currentEvent;
     }
 
-    const headers = data[0];
-    const values = data.slice(1);
-
-    const dataMapped = values.map(row => {
-      return headers.reduce((obj, header, index) => {
-        obj[header] = row[index];
-        return obj;
-      }, {});
-    });
-    const currentEvent = dataMapped.find(item => item.tourItem === 'current');
-    if (!currentEvent || !currentEvent.url_event) {
-    //console.log("getCurrentEvent: Could not find 'current' event in lookup table.");
     return null;
-  }
-
-  return currentEvent;
-
   } catch (e) {
-    Logger.log(`Error reading data from sheet: ${e.message}`);
+    Logger.log(`Error reading data: ${e.message}`);
     return null;
   }
-
 }
 
 // --------------------------------------------------------------------------
+
+function getAthleteIdMaps() {
+  const cacheKeyBase = "athlete_id_maps_chunk_";
+  const manifestKey = "athlete_id_maps_manifest";
+  
+  // 1. Check for the manifest (tells us how many chunks to look for)
+  const manifest = cache.get(manifestKey);
+  
+  if (manifest) {
+    const totalChunks = parseInt(manifest);
+    let fullString = "";
+    for (let i = 0; i < totalChunks; i++) {
+      fullString += cache.get(cacheKeyBase + i) || "";
+    }
+    if (fullString) return JSON.parse(fullString);
+  }
+
+  // 2. If not in cache, build the maps from the sheet
+  const lookupValues = SHT_LOOKUP_ATHLETES_ESPN_DG.getDataRange().getValues();
+  const maps = {
+    dgToEspn: createDgToEspnMap(lookupValues),
+    espnToDg: createEspnToDgMap(lookupValues)
+  };
+
+  // 3. Chunk the stringified data (using ~50KB per chunk to be safe)
+  const jsonString = JSON.stringify(maps);
+  const chunkSize = 50000; 
+  const chunks = [];
+  
+  for (let i = 0; i < jsonString.length; i += chunkSize) {
+    chunks.push(jsonString.substring(i, i + chunkSize));
+  }
+
+  // 4. Store chunks and the manifest (max 6 hours / 21600 seconds)
+  chunks.forEach((chunk, index) => {
+    cache.put(cacheKeyBase + index, chunk, 21600);
+  });
+  cache.put(manifestKey, chunks.length.toString(), 21600);
+
+  return maps;
+}
+
+// ---------------------------------------------------------------------------
+
+/**
+ * Merges properties from a secondary array into a primary array of objects.
+ * @param {Array} primary - The array you want to update.
+ * @param {Array} secondary - The source of new data.
+ * @param {string} joinKey - The unique ID key used to match (e.g., 'id_athlete_dg').
+ * @returns {Array} The merged primary array.
+ */
+function merge_data(primary, secondary, joinKey) {
+  if (!Array.isArray(primary) || !Array.isArray(secondary)) {
+    throw new TypeError("Both inputs must be arrays.");
+  }
+
+  // 1. Create a Map of the secondary data for instant lookups
+  const secondaryMap = new Map();
+  secondary.forEach(obj => {
+    const id = obj?.[joinKey];
+    if (id !== undefined && id !== null) {
+      secondaryMap.set(String(id), obj);
+    }
+  });
+
+  // 2. Map over the primary array and merge data if a match exists
+  return primary.map(baseObj => {
+    const id = String(baseObj?.[joinKey]);
+    const updateData = secondaryMap.get(id);
+    
+    if (updateData) {
+      return { ...baseObj, ...updateData };
+    }
+    return baseObj;
+  });
+}
