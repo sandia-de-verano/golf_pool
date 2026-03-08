@@ -1,0 +1,73 @@
+function batchfetch(sourceDataArray, batch_size) {
+  const totalRequests = sourceDataArray.length;
+  const allResponses = [];
+
+    for (let batchStart = 0; batchStart < totalRequests; batchStart += batch_size) {
+      const batchEnd = Math.min(batchStart + batch_size, totalRequests);
+      const currentBatch = sourceDataArray.slice(batchStart, batchEnd);
+
+      console.log(`Processing batch ${Math.floor(batchStart / batch_size) + 1} (${batchStart + 1} to ${batchEnd} of ${totalRequests})...`);
+
+      // 1. Create fetch requests
+      const fetchRequests = currentBatch.map(item => ({
+        url: item,
+        method: 'GET',
+        muteHttpExceptions: true
+      }));
+
+      // 2. Perform concurrent HTTP requests for the current batch
+      const responses = UrlFetchApp.fetchAll(fetchRequests);
+
+      // 3. Merge responses back with original source data
+      for (let i = 0; i < responses.length; i++) {
+        const response = responses[i];
+        const source = currentBatch[i];
+
+        if (response.getResponseCode() !== 200) {
+          continue; // Skip this item
+        }
+
+        const mergedObject = {
+          source: source, // Original source data
+          response: response   // The API response object
+        };
+        allResponses.push(mergedObject);
+      }
+    }
+
+  const finalDataset = parseData(allResponses);
+
+  return finalDataset;
+}
+
+function parseData(dataArray) {
+  const finalDataset = [];
+
+  if (!dataArray || dataArray.length === 0) {
+    return [];
+  }
+
+  for (let i = 0; i < dataArray.length; i++) {
+    const item = dataArray[i];
+    const source = item.source;
+    const response = item.response;
+
+    let data;
+    try {
+      data = JSON.parse(response.getContentText());
+    } catch (e) {
+      const errorMsg = `JSON parsing error: ${e.toString()}`;
+      console.error(`Error parsing JSON for ${source[i]}: ${errorMsg}`);
+      continue;
+    }
+
+    const rowData = [
+      source,
+      data
+    ];
+
+    finalDataset.push(rowData);
+  }
+
+  return finalDataset;
+}
