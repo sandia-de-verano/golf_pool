@@ -42,41 +42,31 @@ function createEspnToDgMap(rawLookupValues) {
   return espnToDgMap;
 }
 
-function mergeArrayData(primaryDataArray, dgToEspnMap, espnToDgMap, mergeOn) {
+function mergeArrayData(primaryDataArray, dgMap, espnMap, mergeOn) {
   let newHeader;
   let lookupMap; 
   
+  // Use the local parameter names (dgMap, espnMap) instead of global-style names
   if (mergeOn === 'id_athlete_espn') {
     newHeader = 'id_athlete_dg';
-    lookupMap = espnToDgMap;
+    lookupMap = espnMap;
   } else if (mergeOn === 'id_athlete_dg') {
     newHeader = 'id_athlete_espn';
-    lookupMap = dgToEspnMap;
-  } else {
-    Logger.log(`Error: 'mergeOn' parameter must be 'id_athlete_espn' or 'id_athlete_dg'. Received: ${mergeOn}`);
-    return primaryDataArray;
+    lookupMap = dgMap;
   }
 
-  // Check if lookupMap itself is undefined before starting the loop
+  // Safety Gate: If the maps weren't passed correctly, stop here
   if (!lookupMap) {
-    Logger.log("Error: lookupMap is undefined. Check if mapping objects are being passed correctly.");
+    console.error(`mergeArrayData failed: lookupMap for ${mergeOn} is undefined.`);
     return primaryDataArray;
   }
 
   for (const rowObject of primaryDataArray) {
-    const rawSourceId = rowObject[mergeOn];
-    const sourceId = rawSourceId ? rawSourceId.toString() : '';
-
-    // FIX: Check if the sourceId exists as a key in the map
-    if (sourceId && lookupMap.hasOwnProperty(sourceId)) {
-      rowObject[newHeader] = lookupMap[sourceId];
-    } else {
-      rowObject[newHeader] = ''; // Default to empty if not found
-      // Optional: Log only once or selectively to avoid flooding logs
-      // Logger.log(`Warning: ID ${sourceId} not found in map.`);
-    }
+    const sourceId = rowObject[mergeOn] ? rowObject[mergeOn].toString() : '';
+    const targetId = lookupMap[sourceId];
+    
+    rowObject[newHeader] = targetId || '';
   }
-
   return primaryDataArray;
 }
 
@@ -94,44 +84,68 @@ function safeGet(obj, key) {
 
 // --------------------------------------------------------------------------
 
-/**
- * Returns the current event configuration from the lookup sheet.
- * Consolidates the logic from getCurrentEvent, getCurrentEvent_2, and getCurrentEvent_3.
- */
 function getCurrentEvent(sheet) {
   const cacheKey = "current_event_data";
-  const cachedData = cache.get(cacheKey); // cache is defined in 0_config_constants
-
-  if (cachedData) {
-    return JSON.parse(cachedData);
+  
+  // 1. Check the Cache first to avoid unnecessary spreadsheet reads
+  try {
+    const cachedData = cache.get(cacheKey); // 'cache' is defined in 0_config_constants
+    if (cachedData) {
+      const parsedCache = JSON.parse(cachedData);
+      
+      // Ensure cached date strings are converted back into Date objects
+      Object.keys(parsedCache).forEach(key => {
+        if (key.toLowerCase().includes('date') && parsedCache[key]) {
+          parsedCache[key] = new Date(parsedCache[key]);
+        }
+      });
+      return parsedCache;
+    }
+  } catch (e) {
+    Logger.log(`Cache retrieval error: ${e.message}`);
   }
 
+  // 2. Fetch from Spreadsheet if not in cache
   try {
     const data = sheet.getDataRange().getValues();
-      if (data.length <= 1) return null;
+    if (data.length <= 1) return null;
 
-      const headers = data[0];
-      const values = data.slice(1);
-      
-      // Create a Map where the key is the 'tourItem' status (e.g., 'current')
-      const eventMap = new Map(values.map(row => {
-        const obj = headers.reduce((acc, header, idx) => {
-          acc[header] = row[idx];
-          return acc;
-        }, {});
-        return [obj.tourItem, obj];
-      }));
-    const currentEvent = eventMap.get('current') || null;
+    const headers = data[0];
+    const values = data.slice(1);
+
+    // 3. Map values to objects and handle automatic Date conversion
+    const dataMapped = values.map(row => {
+      return headers.reduce((obj, header, index) => {
+        let val = row[index];
+        
+        // Convert any header containing "date" into a Date object for logic handling
+        if (header.toLowerCase().includes('date') && val && !(val instanceof Date)) {
+          val = new Date(val);
+        }
+        
+        obj[header] = val;
+        return obj;
+      }, {});
+    });
+
+    // 4. Find the 'current' event in the mapped data
+    const currentEvent = dataMapped.find(item => item.tourItem === 'current');
     
-    if (currentEvent && currentEvent.url_event) {
-      // Store in cache for 1 hour (3600 seconds)
-      cache.put(cacheKey, JSON.stringify(currentEvent), 14300);
-      return currentEvent;
+    if (!currentEvent || !currentEvent.url_event) {
+      return null;
     }
 
-    return null;
+    // 5. Store the found event in cache for 1 hour (3600 seconds)
+    try {
+      cache.put(cacheKey, JSON.stringify(currentEvent), 3600);
+    } catch (e) {
+      Logger.log(`Cache storage error: ${e.message}`);
+    }
+
+    return currentEvent;
+
   } catch (e) {
-    Logger.log(`Error reading data: ${e.message}`);
+    Logger.log(`Error reading data from sheet: ${e.message}`);
     return null;
   }
 }
@@ -213,3 +227,6 @@ function merge_data(primary, secondary, joinKey) {
     return baseObj;
   });
 }
+
+// ---------------------------------------------------------------------------
+
