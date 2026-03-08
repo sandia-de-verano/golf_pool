@@ -83,29 +83,7 @@ function safeGet(obj, key) {
 }
 
 // --------------------------------------------------------------------------
-
-function getCurrentEvent(sheet) {
-  const cacheKey = "current_event_data";
-  
-  // 1. Check the Cache first to avoid unnecessary spreadsheet reads
-  try {
-    const cachedData = cache.get(cacheKey); // 'cache' is defined in 0_config_constants
-    if (cachedData) {
-      const parsedCache = JSON.parse(cachedData);
-      
-      // Ensure cached date strings are converted back into Date objects
-      Object.keys(parsedCache).forEach(key => {
-        if (key.toLowerCase().includes('date') && parsedCache[key]) {
-          parsedCache[key] = new Date(parsedCache[key]);
-        }
-      });
-      return parsedCache;
-    }
-  } catch (e) {
-    Logger.log(`Cache retrieval error: ${e.message}`);
-  }
-
-  // 2. Fetch from Spreadsheet if not in cache
+function getCurrentEvent(sheet){
   try {
     const data = sheet.getDataRange().getValues();
     if (data.length <= 1) return null;
@@ -113,12 +91,11 @@ function getCurrentEvent(sheet) {
     const headers = data[0];
     const values = data.slice(1);
 
-    // 3. Map values to objects and handle automatic Date conversion
     const dataMapped = values.map(row => {
       return headers.reduce((obj, header, index) => {
         let val = row[index];
         
-        // Convert any header containing "date" into a Date object for logic handling
+        // Check for any header containing "date" and convert to Date object
         if (header.toLowerCase().includes('date') && val && !(val instanceof Date)) {
           val = new Date(val);
         }
@@ -128,28 +105,14 @@ function getCurrentEvent(sheet) {
       }, {});
     });
 
-    // 4. Find the 'current' event in the mapped data
     const currentEvent = dataMapped.find(item => item.tourItem === 'current');
-    
-    if (!currentEvent || !currentEvent.url_event) {
-      return null;
-    }
-
-    // 5. Store the found event in cache for 1 hour (3600 seconds)
-    try {
-      cache.put(cacheKey, JSON.stringify(currentEvent), 3600);
-    } catch (e) {
-      Logger.log(`Cache storage error: ${e.message}`);
-    }
-
-    return currentEvent;
+    return (currentEvent && currentEvent.url_event) ? currentEvent : null;
 
   } catch (e) {
     Logger.log(`Error reading data from sheet: ${e.message}`);
     return null;
   }
 }
-
 // --------------------------------------------------------------------------
 
 function getAthleteIdMaps() {
