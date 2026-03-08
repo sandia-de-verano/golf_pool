@@ -1,0 +1,22 @@
+function readSheetData(sheet) {
+  try {
+    const data = sheet.getDataRange().getValues();
+    if (data.length <= 1) {
+      Logger.log(`Sheet ${sheet.getName()} contains no data besides headers.`);
+      return null;
+    }
+
+    const headers = data[0];
+    const values = data.slice(1);
+
+    return values.map(row => {
+      return headers.reduce((obj, header, index) => {
+        obj[header] = row[index];
+        return obj;
+      }, {});
+    });
+  } catch (e) {
+    Logger.log(`Error reading data from sheet ${sheet.getName()}: ${e.message}`);
+    return null;
+  }
+}
