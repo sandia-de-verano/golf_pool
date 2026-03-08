@@ -68,7 +68,7 @@ function get_final_earnings() {
   global.setValues_keys(finalDataset_time_stamp, SHT_PLAYERLIVE);
 
   // Pass the finalized earnings data directly
-  update_pool_leaderboard(finalDataset_time_stamp);
+  update_pool_leaderboard(currentEvent, finalDataset_time_stamp);
 
 
 }
