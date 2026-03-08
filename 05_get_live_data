@@ -63,9 +63,15 @@ function get_live_data_again() {
   // console.log(in_play_raw[0])
 
   //merge DG Data
-  const merged_data_field = merge_live_data_dg_id(player_data_raw, field_updates)
-  const merged_data_player_in_play = merge_live_data_dg_id(merged_data_field, in_play_raw)
-  const merged_data_live = merge_live_data_dg_id(merged_data_player_in_play, live_tournament_raw)
+  const merged_data_field = merge_data(player_data_raw, field_updates, 'id_athlete_dg')
+   // merge_live_data_dg_id(player_data_raw, field_updates)
+  const merged_data_player_in_play = merge_data(merged_data_field, in_play_raw, 'id_athlete_dg')
+    //merge_live_data_dg_id(merged_data_field, in_play_raw)
+  const merged_data_live = merge_data(merged_data_player_in_play, live_tournament_raw, 'id_athlete_dg')
+    //merge_live_data_dg_id(merged_data_player_in_play, live_tournament_raw)
+
+  merged_data_live.sort((a, b) => (a.current_score || 0) - (b.current_score || 0));
+
   const merged_data_earn = calculateGolfWinnings(merged_data_live, prizeMap)
 
   const filter_data = merged_data_earn.filter(obj => obj.make_cut > .5)
@@ -167,10 +173,12 @@ const fieldsForLookup = [
     finalDataset_time_stamp.sort((a, b) => a.adjusted_rank - b.adjusted_rank);
     finalDataset_time_stamp.sort((a, b) => a.current_score - b.current_score);
 
-  SHT_PLAYERLIVE.clearContents();
-  global.setValues_keys(finalDataset_time_stamp,SHT_PLAYERLIVE)
 
-  update_pool_leaderboard()
+  SHT_PLAYERLIVE.clearContents();
+  global.setValues_keys(finalDataset_time_stamp, SHT_PLAYERLIVE);
+
+  // Pass the data we just built directly to the next function
+  update_pool_leaderboard(finalDataset_time_stamp);
 
 }
 
@@ -497,70 +505,58 @@ function merge_live_data_espn_id(array1, array2) {
 
 
 // ----------------------------------------------------------------------------------
-function calculateGolfWinnings(players,prizeMap) {
+function calculateGolfWinnings(players, prizeMap) {
+  if (!players || players.length === 0) return [];
 
-  const existingRanks = players
-    .map(p => parseInt((p.adjusted_rank || "").toString().replace(/[^0-9]/g, "")))
-    .filter(r => !isNaN(r))
-    .sort((a, b) => a - b);
+  // 1. Group players by their score to identify ties
+  const tiedGroups = [];
+  let currentGroup = [players[0]];
 
-  const uniqueRanks = [...new Set(existingRanks)];
+  for (let i = 1; i < players.length; i++) {
+    if (players[i].current_score === players[i - 1].current_score) {
+      currentGroup.push(players[i]);
+    } else {
+      tiedGroups.push(currentGroup);
+      currentGroup = [players[i]];
+    }
+  }
+  tiedGroups.push(currentGroup); // Push the final group
+
+  // 2. Assign ranks and earnings based on group size
+  let currentRank = 1;
   
-  // Create a map
-  const rankMap = {};
-  uniqueRanks.forEach((rawRank, index) => {
-    rankMap[rawRank] = index + 1;
-  });
+  tiedGroups.forEach(group => {
+    const groupSize = group.length;
+    let averageEarnings = 0;
 
-  // 2. Update players to use Adjusted Rank if original is blank
-  players.forEach(player => {
-    const rawRank = parseInt((player.current_position || "").toString().replace(/[^0-9]/g, ""));
-    const uncut_rank = player.current_position
+    // Check if players in this group are disqualified or cut
+    const isOut = group[0].current_position === "CUT" || 
+                  group[0].current_position === "WD" || 
+                  group[0].current_position === "DQ";
 
-    if (uncut_rank === "CUT" || uncut_rank === "WD" || uncut_rank === "DQ") {
-      player.effective_rank = 0;
-    } else if (isNaN(rawRank) || rawRank === undefined || rawRank === null || rawRank === '') {
-      player.effective_rank = rankMap[player.adjusted_rank] || null;
-    } else {
-      player.effective_rank = rawRank;
-    }
-
-  });
-
-  // 3. Count occurrences of the EFFECTIVE rank (for tie logic)
-  const positionCounts = players.reduce((acc, player) => {
-    if (player.effective_rank) {
-      acc[player.effective_rank] = (acc[player.effective_rank] || 0) + 1;
-    }
-    return acc;
-  }, {});
-
-  // 4. Calculate winnings based on the effective rank
-  players.forEach((player) => {
-    const startRank = player.effective_rank;
-
-    if (!startRank) {
-      player.projected_earnings = 0;
-      return;
-    }
-
-    const count = positionCounts[startRank];
-
-    if (count > 1) {
-      // TIE LOGIC
+    if (!isOut) {
+      // Tie Logic: Sum prizes for all slots this group occupies and average them
       let totalTiePool = 0;
-      for (let i = 0; i < count; i++) {
-        totalTiePool += (prizeMap[startRank + i] || 0);
+      for (let i = 0; i < groupSize; i++) {
+        totalTiePool += (prizeMap[currentRank + i] || 0);
       }
-      player.projected_earnings = totalTiePool / count;
-    } else {
-      // SOLO LOGIC
-      player.projected_earnings = prizeMap[startRank] || 0;
+      averageEarnings = totalTiePool / groupSize;
     }
+
+    // Apply calculated values to every player in the tie-group
+    group.forEach(player => {
+      player.effective_rank = isOut ? 0 : currentRank;
+      player.projected_earnings = averageEarnings;
+    });
+
+    // Increment rank by the number of players in the group (e.g., 3 players at T1 means next rank is 4)
+    currentRank += groupSize;
   });
 
   return players;
 }
+
+//---------------------------------------------------------------------------------------
 
 function createFinalOutput(dataset,fieldsForLookup){
     const finalDataset = dataset.map(originalObject => {
