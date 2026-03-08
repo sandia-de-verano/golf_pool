@@ -5,41 +5,22 @@ function leaderboard_flow () {
   const leaderboard = global.readSheetData(SHT_VIEW_LEADERBOARD);
     if (!leaderboard || leaderboard.length === 0) return;
 
-const earn_flag = leaderboard[0].earn_flag || '';
+let earn_flag = (leaderboard.length > 0) ? (leaderboard[0].earn_flag || '') : '';
 
 // Recognize both final states to stop the script
-if ((earn_flag === 'final' || earn_flag === 'final_non_pool') && 
-     date_status === false && date_end_status === false) {
-    console.log('Tournament finished (Status: ' + earn_flag + '). Stopping updates.');
-    return; 
-}
-
-  const start_date = currentEvent.adj_start_date;
-  const end_date = currentEvent.adj_end_date;
-  const date_end_status = checkDateStatus(end_date); // true if BEFORE end date
-  const has_started = !checkDateStatus(start_date); 
-  const is_ongoing = checkDateStatus(end_date);
-
-  if (!leaderboard || leaderboard.length === 0) return;
-
-
-  // 2. Gate: Frequency Limit (e.g., only update every 10 minutes)
-  const update_needed = isUpdateNeeded(player_live, 10); // Helper below
-  if (!update_needed) {
-    console.log('Data updated recently. Skipping fetch.');
-    return;
+if (earn_flag === 'final' || earn_flag === 'final_non_pool') {
+      console.log('Tournament is already complete.');
+      return; 
   }
 
-  // 3. Conditional Fetch Logic
-  if (has_started && is_ongoing) {
-    console.log('Tournament ongoing: Running live Data Golf updates.');
+  const is_ongoing = checkDateStatus(currentEvent.adj_end_date); // true if before end date
+
+  if (is_ongoing) {
+    console.log('Running live updates.');
     get_live_data_again(); 
-  } 
-  else if (!is_ongoing) {
-    console.log('Tournament ended: Polling ESPN for final earnings.');
-    get_final_earnings();
   } else {
-    console.log('Tournament has not started yet.');
+    console.log('Tournament over: checking ESPN for final earnings.');
+    get_final_earnings();
   }
 }
 
@@ -79,23 +60,15 @@ function checkRecentUpdates(dataArray) {
 function checkDateStatus(target_date) {
   const today = new Date();
   
-  // Ensure targetDate is a Date object, even if a string was passed
-  const targetDate = new Date(target_date);
+  // Ensure we are working with a Date object
+  const targetDate = (target_date instanceof Date) ? target_date : new Date(target_date);
 
-  // Check if the date is valid before calling .getTime()
   if (isNaN(targetDate.getTime())) {
     console.error("Invalid date passed to checkDateStatus:", target_date);
     return false; 
   }
 
-  let date_status;
-  if (today.getTime() < targetDate.getTime()) {
-    date_status = true; // Today is BEFORE the target date
-  } else {
-    date_status = false; // Target date has passed or is today
-  }
-
-  return date_status;
+  return today.getTime() < targetDate.getTime();
 }
 
 function isUpdateNeeded(dataArray, minutes) {
