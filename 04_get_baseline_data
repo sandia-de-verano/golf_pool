@@ -6,67 +6,65 @@
  */
 
 function get_baseline_data() {
-  // --- 1. Get Data ---
-  const currentEvent = getCurrentEvent(SHT_LOOKUPTOURNAMENT);
+ const currentEvent = getCurrentEvent(SHT_LOOKUPTOURNAMENT);
+  const { dgToEspnMap, espnToDgMap } = getAthleteIdMaps();
   const athlete_data = global.readSheetData(SHT_ATHLETES);
-  const lookup_athletes = SHT_LOOKUP_ATHLETES_ESPN_DG.getDataRange().getValues();
-  const lookup_liv_temp = SHT_LIV_PLAYERS.getRange(4,14,SHT_LIV_PLAYERS.getLastRow(),2).getValues();
-    const lookup_liv_players = lookup_liv_temp.map(([id]) => {
-        return {
-          id_athlete_espn: String(id[0]),
-          id_athlete_dg: String(id[1]),
-          active_LIV_player: 'yes'
-        };
-      });
-  // --- Create Lookups ---
-   const dgToEspnMap = createDgToEspnMap(lookup_athletes); // key is dg_id, lookup espn_id -> use dg_id in data
-   const espnToDgMap = createEspnToDgMap(lookup_athletes); // key is espn_id, lookup dg_id -> use espn_id in data
+  const lookup_liv_players = SHT_LIV_PLAYERS.getRange(4,14,SHT_LIV_PLAYERS.getLastRow(),2).getValues()
+    .map(([id]) => ({ id_athlete_espn: String(id[0]), id_athlete_dg: String(id[1]), active_LIV_player: 'yes' }));
 
-  // --- Rankings ---
-  const rankings_raw = get_dg_rankings_v2(dgToEspnMap,espnToDgMap)
-  const rankings_raw_espn = get_espn_rankings_v2()
-  const rankings_map = mergeArrayData(rankings_raw,dgToEspnMap, espnToDgMap,'id_athlete_dg')
-  const rankings_espn = merge_live_data_espn_id(rankings_map, rankings_raw_espn)
+  // 1. Define all URLs
+  const urls = {
+    ranks: `${SOURCEURL_DG}${ENDPT_PRD_RANKS}?${FILEFORMAT}${API_DG}`,
+    field: `${SOURCEURL_DG}${ENDPT_FIELD_UPDATES}?${FILEFORMAT}${API_DG}`,
+    decomp: `${SOURCEURL_DG}${ENDPT_PRD_PLYR_DECOMP}?${FILEFORMAT}${API_DG}`,
+    preTour: `${SOURCEURL_DG}${ENDPT_PRD_PRE_TOUR}?${FILEFORMAT}${API_DG}`,
+    skills: `${SOURCEURL_DG}${ENDPT_PRD_SKILL_RATE}?display=rank&${FILEFORMAT}${API_DG}`,
+    espn: getEspnRankingsUrl() 
+  };
 
-  const rankings_adj =  add_selection_name_LIV(rankings_espn,lookup_liv_players);
+  // 2. Prepare concurrent requests
+  const requests = [
+    { url: urls.ranks, method: 'GET', muteHttpExceptions: true }, // Index 0
+    { url: urls.field, method: 'GET', muteHttpExceptions: true }, // Index 1
+    { url: urls.decomp, method: 'GET', muteHttpExceptions: true }, // Index 2
+    { url: urls.preTour, method: 'GET', muteHttpExceptions: true }, // Index 3
+    { url: urls.skills, method: 'GET', muteHttpExceptions: true }  // Index 4
+  ];
+  if (urls.espn) requests.push({ url: urls.espn, method: 'GET', muteHttpExceptions: true }); // Index 5
 
-  rankings_adj.sort((a, b) => a.adjusted_rank - b.adjusted_rank);
+  const responses = UrlFetchApp.fetchAll(requests);
 
+  // 3. Parse all responses using the new functions
+  const dgRanksRaw = responses[0].getResponseCode() === 200 ? parseDgRankData(responses[0].getContentText()) : [];
+  const fieldUpdates = responses[1].getResponseCode() === 200 ? parseDgFieldUpdates(responses[1].getContentText(), currentEvent) : [];
+  const playerDecomp = responses[2].getResponseCode() === 200 ? parseDgPlayerDecomp(responses[2].getContentText()) : [];
+  const preTourData = responses[3].getResponseCode() === 200 ? parseDgPreTourData(responses[3].getContentText()) : [];
+  const skillRatings = responses[4].getResponseCode() === 200 ? parseDgSkillRatings(responses[4].getContentText()) : [];
+  const espnRanksRaw = (urls.espn && responses[5]?.getResponseCode() === 200) ? parseEspnRankData(responses[5].getContentText()) : [];
+
+  // 4. Perform efficient merges using the Generic Merge utility
+  let rankings_map = mergeArrayData(dgRanksRaw, dgToEspnMap, espnToDgMap, 'id_athlete_dg');
+  let rankings_espn = merge_data(rankings_map, espnRanksRaw, 'id_athlete_espn');
+  let rankings_final = add_selection_name_LIV(rankings_espn, lookup_liv_players);
+
+  // Save Rankings
   SHT_RANKINGS.clearContents();
-  global.setValues_keys(rankings_adj,SHT_RANKINGS)
+  global.setValues_keys(rankings_final, SHT_RANKINGS);
 
-  // --- Get Event Specific Data --- 
+  // 5. Merge Event-Specific Data
+  let mergedData = merge_data(fieldUpdates, playerDecomp, 'id_athlete_dg');
+  mergedData = merge_data(mergedData, preTourData, 'id_athlete_dg');
+  mergedData = merge_data(mergedData, skillRatings, 'id_athlete_dg');
+  mergedData = merge_data(mergedData, athlete_data, 'id_athlete_espn');
+  mergedData = merge_data(mergedData, rankings_final, 'id_athlete_dg');
 
-    // --- 1. Get Data ---
-    // --- DG Data ---
-  const field_updates = dg_get_field_updates_3(dgToEspnMap,espnToDgMap,currentEvent)
-  const player_decomp_data = get_player_decomp();
-  const preTour_Data = get_preTourData_v2();
-  const skill_ratings = get_skill_ratings()
+  const final_dataset = add_selection_name_LIV(mergedData, lookup_liv_players)
+    .filter(item => item.id_event_dg !== undefined && item.id_event_dg !== '')
+    .sort((a, b) => a.adjusted_rank - b.adjusted_rank);
 
-  const temp_dg_data_comp_decomp = merge_live_data_dg_id(field_updates, player_decomp_data)
-  const temp_dg_data_pretour = merge_live_data_dg_id(temp_dg_data_comp_decomp, preTour_Data)
-  const temp_dg_data_skillRk = merge_live_data_dg_id(temp_dg_data_pretour, skill_ratings)
-
-  const temp_addNames = merge_live_data_espn_id(temp_dg_data_skillRk, athlete_data);
-
-  console.log('temp_addNames: '+temp_addNames.length)
-
-  const dataset_addRanking = merge_live_data_dg_id(temp_addNames, rankings_espn)
-
-  console.log('dataset_addRanking: '+dataset_addRanking.length)
-
-  const dataset_adj_rank =  add_selection_name_LIV(dataset_addRanking,lookup_liv_players);
-
-  console.log(dataset_adj_rank[75])
-
-  const final_dataset = dataset_adj_rank.filter(item => item.event_name !== undefined || item.event_name !== '' || item.event_name !== null);
-
-    final_dataset.sort((a, b) => a.adjusted_rank - b.adjusted_rank);
-  
+  // 6. Final Save
   SHT_PLAYERDATA.clearContents();
-  global.setValues_keys(final_dataset,SHT_PLAYERDATA)
-
+  global.setValues_keys(final_dataset, SHT_PLAYERDATA);
 }
 
 function get_dg_rankings_v2(dgToEspnMap,espnToDgMap) {
@@ -153,7 +151,7 @@ function add_selection_name_LIV(rankings_dataset,liv_players){
             rank_flag = 'owgr'
           }
 
-          if (!('full_name' in athlete)) {
+          if (!('fullName' in athlete)) { //fullName full_name
               const newNormalizedName = swapNameOrder(athlete.player_name);
               combinedValue = `${adjusted_rank} - ${newNormalizedName}`;
             } else {
@@ -441,6 +439,66 @@ function swapNameOrder(fullName) {
   
   return newName;
 }
+//--------------------------------------------------------------------------------------------------
+function getEspnRankingsUrl() {
+  const league = 'all';
+  const dataType = 'rankings';
+  const dataType2 = '1';
+  const endpoint = `${SOURCEURL_ESPN}/v2/sports/${SPORT}/leagues/${league}/seasons/${YEAR}/${dataType}/${dataType2}/dates`;
+
+  try {
+    const response = UrlFetchApp.fetch(endpoint, { muteHttpExceptions: true });
+    if (response.getResponseCode() !== 200) return null;
+    
+    const data = JSON.parse(response.getContentText());
+    return data.items?.[0]?.$ref || null;
+  } catch (e) {
+    console.log(`Failed to find ESPN rankings URL: ${e.message}`);
+    return null;
+  }
+}
+
+/**
+ * Phase 2: Parses the raw JSON response from ESPN into your standard format.
+ */
+function parseEspnRankData(jsonContent) {
+  const headers = ['id_athlete_espn', 'current_rank', 'prior_rank', 'rank_trend', 'total_points', 'gained_points', 'lost_points', 'average_points', 'total_events'];
+  const ATHLETE_ID_REGEX = /athletes\/(\d+)/;
+  
+  const data = JSON.parse(jsonContent);
+  const rankData = data.ranks || [];
+  const dataset = [];
+
+  for (const temp of rankData) {
+    let athlete_id = '';
+    const athleteRef = temp.athlete?.$ref;
+    if (athleteRef) {
+      const match = athleteRef.match(ATHLETE_ID_REGEX);
+      athlete_id = match ? match[1] : '';
+    }
+
+    const stats = temp.record?.stats || [];
+    dataset.push([
+      athlete_id, 
+      temp.current ?? '', 
+      temp.previous ?? '', 
+      temp.trend ?? '',
+      stats[0]?.value ?? '', // totalPoints
+      stats[1]?.value ?? '', // gainedPoints
+      stats[2]?.value ?? '', // lostPoints
+      stats[3]?.value ?? '', // averagePoints
+      stats[4]?.value ?? ''  // totalEvents
+    ]);
+  }
+
+  return dataset.map(row => {
+    let obj = {};
+    headers.forEach((header, idx) => obj[header] = row[idx]);
+    return obj;
+  });
+}
+
+
 
 function get_espn_rankings_v2() {
 
@@ -537,4 +595,79 @@ function get_espn_rankings_v2() {
 
   return dataArray
 
+}
+
+// ----------------------------------------------------------------
+
+/** Parses DG Rankings */
+function parseDgRankData(jsonContent) {
+  const data = JSON.parse(jsonContent);
+  const rankings = data.rankings || [];
+  return rankings.map(rank => ({
+    id_athlete_dg: rank.dg_id ?? '',
+    player_name: swapNameOrder(rank.player_name),
+    owgr_rank: rank.owgr_rank,
+    datagolf_rank: rank.datagolf_rank,
+    primary_tour: rank.primary_tour ?? '',
+    isAmateur: rank.am ?? '',
+    country: rank.country ?? '',
+    skill_estimate: rank.dg_skill_estimate ?? ''
+  }));
+}
+
+/** Parses DG Field Updates */
+function parseDgFieldUpdates(jsonContent, currentEvent) {
+  const data = JSON.parse(jsonContent);
+  const field = data.field || [];
+  return field.map(player => ({
+    id_athlete_dg: player.dg_id ?? '',
+    id_event_dg: data.event_id ?? '',
+    tournamentName: data.event_name ?? '',
+    isAmateur: player.am ?? '',
+    early_late: player.early_late ?? '',
+    pga_number: player.pga_number ?? '',
+    start_hole: player.start_hole ?? '',
+    course: player.course ?? '',
+    id_tournament: currentEvent.id_tournament,
+    id_event: currentEvent.id_event,
+    year: currentEvent.year,
+    league: currentEvent.league
+  }));
+}
+
+/** Parses DG Player Decomposition */
+function parseDgPlayerDecomp(jsonContent) {
+  const data = JSON.parse(jsonContent);
+  return (data.players || []).map(player => ({
+    id_athlete_dg: String(player.dg_id),
+    players_final_pred: player.final_pred ?? ''
+  }));
+}
+
+/** Parses DG Pre-Tournament Predictions */
+function parseDgPreTourData(jsonContent) {
+  const data = JSON.parse(jsonContent);
+  return (data.baseline_history_fit || []).map(player => ({
+    id_athlete_dg: String(player.dg_id),
+    make_cut: player.make_cut ?? '',
+    top_20: player.top_20 ?? '',
+    top_10: player.top_10 ?? '',
+    top_5: player.top_5 ?? '',
+    win: player.win ?? ''
+  }));
+}
+
+/** Parses DG Skill Ratings */
+function parseDgSkillRatings(jsonContent) {
+  const data = JSON.parse(jsonContent);
+  return (data.players || []).map(player => ({
+    id_athlete_dg: player.dg_id ?? '',
+    driving_acc: player.driving_acc ?? '',
+    driving_dist: player.driving_dist ?? '',
+    sg_app: player.sg_app ?? '',
+    sg_arg: player.sg_arg ?? '',
+    sg_ott: player.sg_ott ?? '',
+    sg_putt: player.sg_putt ?? '',
+    sg_total: player.sg_total ?? ''
+  }));
 }
