@@ -53,7 +53,8 @@ function get_final_earnings() {
 // ------------------------------------
 
 
-  const finalDataset = merge_live_data_espn_id(player_live_raw,ath_info_keys)
+  const finalDataset = merge_data(espn_data, player_data_raw, 'id_athlete_espn')
+    //merge_live_data_espn_id(player_live_raw,ath_info_keys)
 
     const finalDataset_time_stamp = finalDataset.map(item => ({
       ...item, // This "spreads" the existing keys (name, earnings, etc.)
@@ -63,13 +64,12 @@ function get_final_earnings() {
     finalDataset_time_stamp.sort((a, b) => a.adjusted_rank - b.adjusted_rank);
     finalDataset_time_stamp.sort((a, b) => a.current_score - b.current_score);
 
-  SHT_TEST.clearContents();
-  global.setValues_keys(finalDataset_time_stamp,SHT_TEST)
+  SHT_PLAYERLIVE.clearContents();
+  global.setValues_keys(finalDataset_time_stamp, SHT_PLAYERLIVE);
 
-  //SHT_PLAYERLIVE.clearContents();
-  //global.setValues_keys(finalDataset_time_stamp,SHT_PLAYERLIVE)
+  // Pass the finalized earnings data directly
+  update_pool_leaderboard(finalDataset_time_stamp);
 
-  update_pool_leaderboard()
 
 }
 
@@ -124,4 +124,17 @@ function hist_parseDataESPN_results(dataArray) {
   return final_data_de_dup;
 }
 
+function parseUrl_athlete(url) {
+  const match = url.match(/competitors\/(\d+)/);
+  return match ? match[1] : '';
+}
+
+// Merges official ESPN earnings/position into your existing athlete objects
+function merge_data_non_unique(baseArray, updateArray) {
+  const updateMap = new Map(updateArray.map(obj => [obj.id_athlete_espn, obj]));
+  return baseArray.map(baseObj => {
+    const update = updateMap.get(baseObj.id_athlete_espn) || {};
+    return { ...baseObj, ...update };
+  });
+}
 
