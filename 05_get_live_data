@@ -6,6 +6,13 @@ function get_live_data_again() {
     const year = currentEvent.year
 
   const player_data_raw = global.readSheetData(SHT_PLAYERDATA);
+    const tour_check = player_data_raw[0].tournamentName
+
+  const player_live_raw = global.readSheetData(SHT_PLAYERLIVE);
+    const thirty_min = 30 * 60 * 1000;
+    const updated_time = (player_live_raw[0].last_data_pull)
+    const now = new Date().getTime();
+    const time_check = (now - updated_time) > thirty_min
 
   const prj_earn_table_raw = SHT_PROJ_EARNINGS_TABLE.getRange(1,8,SHT_PROJ_EARNINGS_TABLE.getLastRow(),2).getValues();
     const prj_earn_table_values = prj_earn_table_raw.slice(1);
@@ -21,10 +28,28 @@ function get_live_data_again() {
   }, {});
 
   const live_tournament_raw = live_tournament();
-    console.log(live_tournament_raw[0])
 
   const field_updates = dg_get_field_updates_live()
-      const r1_times = []
+    const isPostTourney = !checkDateStatus(currentEvent.adj_end_date); 
+    const tour_check_live = field_updates[0].tournamentName 
+
+  if (tour_check === tour_check_live && !isPostTourney ){
+    console.log("Using DG Data, continue")
+  } else if (tour_check_live != tour_check && isPostTourney && time_check){
+    console.log("Updating ESPN data.");
+    get_final_earnings();
+    return
+  } 
+
+  //if (tour_check_live === tour_check && time_check) {
+   // console.log("Updating ESPN data.");
+   //get_final_earnings();
+  //} else {
+   // console.log("DataGolf has switched and tournament is over. Keeping existing live data until ESPN finalizes.");
+    //return; // Exit here to prevent clearing SHT_PLAYERLIVE
+ //}
+  
+  const r1_times = []
       for (const row of field_updates) {
         r1_times.push(
           row.r1_teetime,
@@ -39,11 +64,8 @@ function get_live_data_again() {
 
   //merge DG Data
   const merged_data_field = merge_live_data_dg_id(player_data_raw, field_updates)
-    //console.log(merged_data_field[0])
   const merged_data_player_in_play = merge_live_data_dg_id(merged_data_field, in_play_raw)
-    //console.log(merged_data_field[0])
   const merged_data_live = merge_live_data_dg_id(merged_data_player_in_play, live_tournament_raw)
-    //console.log(merged_data_field[0])
   const merged_data_earn = calculateGolfWinnings(merged_data_live, prizeMap)
 
   const filter_data = merged_data_earn.filter(obj => obj.make_cut > .5)
@@ -103,8 +125,6 @@ const fieldsForLookup = [
       'r2_teetime',
       'r3_teetime',
       'r4_teetime',
-      'early_late',
-      'start_hole',
       'total_points',
       'gained_points',
       'lost_points',
@@ -134,15 +154,14 @@ const fieldsForLookup = [
       'scrambling',
       'great_shots',
       'poor_shots',
-      'playerSelection_name',
-      'last_updated'
+      'playerSelection_name'
   ];
 
   const finalDataset = createFinalOutput(merged_data_earn,fieldsForLookup)
 
   const finalDataset_time_stamp = finalDataset.map(item => ({
     ...item, // This "spreads" the existing keys (name, earnings, etc.)
-    last_updated: new Date().toLocaleString() // Adds the new one
+    last_data_pull: new Date().getTime() // Adds the new one
   }));
 
     finalDataset_time_stamp.sort((a, b) => a.adjusted_rank - b.adjusted_rank);
@@ -158,8 +177,9 @@ const fieldsForLookup = [
 // ----------------------------------------------------------------------------------
 function get_in_play(player_data_key,in_play_start_time) {
   const current_time = Date.now();
+  const now = new Date().toLocaleString()
 
-  const headers = ['id_athlete_dg','current_round',"r1_score", "r2_score", "r3_score", "r4_score", "current_position", "current_score", "end_hole", "make_cut", "round", "thru", "today", "top_10", "top_20", "top_5", "win",'earnings','last_updated']
+  const headers = ['id_athlete_dg','current_round',"r1_score", "r2_score", "r3_score", "r4_score", "current_position", "current_score", "end_hole", "make_cut", "thru", "today", "top_10", "top_20", "top_5", "win",'earnings','last_updated']
  
   let dataset = [];
 
@@ -184,28 +204,29 @@ function get_in_play(player_data_key,in_play_start_time) {
     // --- 2. Process Data ---
     const in_play = data.data || [];
     const earnings = 0
+    const last_updated = data.info.last_update || now;
+
+    console.log(last_updated)
 
     for (const player of in_play) {
       dataset.push([
         player.dg_id,
-        data.info.current_round ?? '',
-        player.R1,
-        player.R2,
-        player.R3,
-        player.R4,
-        player.current_pos,
-        player.current_score,
-        player.end_hole,
-        player.make_cut,
-        player.round,
-        player.thru,
-        player.today,
-        player.top_10,
-        player.top_20,
-        player.top_5,
-        player.win,
+        player.round ?? '',
+        player.R1 ?? '',
+        player.R2 ?? '',
+        player.R3 ?? '',
+        player.R4 ?? '',
+        player.current_pos ?? '',
+        player.current_score ?? '',
+        player.end_hole ?? '',
+        player.make_cut ?? '',
+        player.thru ?? '',
+        player.today ?? '',
+        player.top_10 ?? '',
+        player.top_20 ?? '',
+        player.top_5 ?? '',
+        player.win ?? '',
         earnings,
-        data.info.last_update,
       ]);
     }
 
@@ -381,22 +402,22 @@ function dg_get_field_updates_live() {
   const dataset = []
 
   const field = data.field
+  const field_teetimes = field.teetimes
 
   // --- 2. Process Data ---
 
-  for (const player of field) {
+ for (const player of field) {
     dataset.push([
       player.dg_id ?? '',
-      player.early_late ?? '',
-      player.r1_teetime ?? '',
-      player.r2_teetime ?? '',
-      player.r3_teetime ?? '',
-      player.r4_teetime ?? '',
-      player.start_hole ?? '',
+      player.teetimes[0]?.teetime ?? '',
+      player.teetimes[1]?.teetime ?? '',
+      player.teetimes[2]?.teetime ?? '',
+      player.teetimes[3]?.teetime ?? '',
+      player.teetimes[4]?.teetime ?? '',
     ]);
   }
 
-  const headers = [ 'id_athlete_dg','early_late','r1_teetime','r2_teetime','r3_teetime','r4_teetime','start_hole']
+  const headers = [ 'id_athlete_dg','r1_teetime','r2_teetime','r3_teetime','r4_teetime']
 
   const outputArray = dataset.map(row => {
     let obj = {};
@@ -490,8 +511,6 @@ function calculateGolfWinnings(players,prizeMap) {
   uniqueRanks.forEach((rawRank, index) => {
     rankMap[rawRank] = index + 1;
   });
-
-  console.log(rankMap)
 
   // 2. Update players to use Adjusted Rank if original is blank
   players.forEach(player => {
