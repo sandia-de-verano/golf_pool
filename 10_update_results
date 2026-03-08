@@ -1,23 +1,20 @@
-function update_detailed_results_history() {
-console.log('Updating leaderboard detailed results');
-const leaderboard = global.readSheetData(SHT_VIEW_LEADERBOARD)
+function update_detailed_results_history(leaderboardData) {
+  console.log('Updating leaderboard detailed results');
+  
+  // Convert array back to objects using your headers if needed, 
+  // or pass objects directly from the previous function.
+  const leaderboard = leaderboardData; 
 
-  if (leaderboard.length === 0) {
+  if (!leaderboard || leaderboard.length === 0) {
       console.log('Leaderboard Blank');
       return; 
   } 
 
-  console.log(leaderboard.length)
-
-const user_detailed_results = global.readSheetData(SHT_USER_RESULTS)
-
-user_detailed_results.push(leaderboard)
-
-const merge = merge_results(user_detailed_results,leaderboard)
+  const user_detailed_results = global.readSheetData(SHT_USER_RESULTS);
+  const merge = merge_results(user_detailed_results, leaderboard);
 
   SHT_USER_RESULTS.clearContents();
-  global.setValues_keys(merge,SHT_USER_RESULTS)
-
+  global.setValues_keys(merge, SHT_USER_RESULTS);
 }
 
 function merge_results(array1, array2) {
@@ -110,7 +107,8 @@ console.log(user_detailed_results.length)
 
   const output_keys = add_keys(outputRows,finalHeader)
 
-  const merge_results = merge_results_id(output_keys,overall_results)
+  const merge_results = merge_data(output_keys, overall_results, 'UID')
+  //merge_results_id(output_keys,overall_results)
 
   SHT_OVERALL_RESULTS.clearContents();
   global.setValues_keys(merge_results,SHT_OVERALL_RESULTS)
