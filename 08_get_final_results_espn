@@ -53,7 +53,7 @@ function get_final_earnings() {
 // ------------------------------------
 
 
-  const finalDataset = merge_data(espn_data, player_data_raw, 'id_athlete_espn')
+  const finalDataset = merge_data(ath_info_keys, player_live_raw, 'id_athlete_espn')
     //merge_live_data_espn_id(player_live_raw,ath_info_keys)
 
     const finalDataset_time_stamp = finalDataset.map(item => ({
