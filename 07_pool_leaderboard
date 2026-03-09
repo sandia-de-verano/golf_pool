@@ -1,7 +1,12 @@
-function update_pool_leaderboard(playerLiveResults) {
-  const currentEvent = getCurrentEvent(SHT_LOOKUPTOURNAMENT);
-    if (!currentEvent) return;
+function update_pool_leaderboard(currentEvent, playerLiveResults) {
+  
+  if (!currentEvent) {
+    currentEvent = getCurrentEvent(SHT_LOOKUPTOURNAMENT);
+  }
+
+  // FIX: Define id_event and pool status for local scope
   const id_event = currentEvent.id_event;
+  const isPoolEvent = currentEvent.isPoolEvent;
 
   const player_rankings = global.readSheetData(SHT_RANKINGS);
   const player_selection_data = global.readSheetData(SHT_PLAYERDATA);
@@ -9,7 +14,6 @@ function update_pool_leaderboard(playerLiveResults) {
 
   // Use the passed parameter instead of reading the sheet again
   const player_live_data = playerLiveResults; 
-  
   const live_proj_earn_sum = sumField(player_live_data, 'projected_earnings');
   const earnings_sum = sumField(player_live_data, 'earnings');
 
@@ -34,8 +38,6 @@ function update_pool_leaderboard(playerLiveResults) {
         playerRankingsMap.set(id_athlete_espn, player);
     }
   });
-
-
 
   const playerSelectionMap = new Map();
     player_selection_data.forEach(playerObj => {
@@ -111,24 +113,16 @@ slots.forEach(slot => {
  //console.log(Array.from(final_earnings_map))
  //console.log(earnings_sum,live_proj_earn_sum)
 
-  const mergedData = flattenedUserSelections.map(item => {
+const mergedData = flattenedUserSelections.map(item => {
     const player_ranking = playerRankingsMap.get(item.id_athlete_espn) || {};
     const player_data = playerSelectionMap.get(item.id_athlete_espn) || {};
     const live_data = playerLiveMap.get(item.id_athlete_espn) || {};
 
-    let earn_flag
-      if( earnings_sum > 0 && live_proj_earn_sum > 0) { // checking final_earnings
-        earnings = live_data.earnings;
-        earn_flag = 'final';
-
-      } else if (earnings_sum === 0 && live_proj_earn_sum > 0) {
-        earnings = live_data.projected_earnings;
-        earn_flag = 'projected_earnings';
-
-      } else  {
-        earnings = 0;
-        earn_flag = '';
-      } 
+    let earn_flag;
+    if (earnings_sum > 0 && live_proj_earn_sum > 0) {
+      // Logic for silencing alerts on non-pool events
+      earn_flag = isPoolEvent ? 'final' : 'final_non_pool';
+    }
 
     return {
       ...item,
@@ -139,6 +133,7 @@ slots.forEach(slot => {
       score: live_data.current_score ?? 0,
       earnings: earnings ?? 0,
       earn_flag: earn_flag ?? "",
+      isPoolEvent: isPoolEvent ?? ""
     };
   });
 
@@ -215,7 +210,7 @@ slots.forEach(slot => {
   SHT_VIEW_LEADERBOARD.clearContents();
   global.setValues(finalOutput, SHT_VIEW_LEADERBOARD, header_pool);
 
-  //create_update_leaderboards()
+  create_update_leaderboards();
   update_detailed_results_history(finalOutput);
 
 }
