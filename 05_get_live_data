@@ -29,17 +29,21 @@ function get_live_data_again() {
 
   const live_tournament_raw = live_tournament();
 
-  const field_updates = dg_get_field_updates_live()
-    const isPostTourney = !checkDateStatus(currentEvent.adj_end_date); 
-    const tour_check_live = field_updates[0].tournamentName 
+  const field_updates = dg_get_field_updates_live();
+  const isPostTourney = !checkDateStatus(currentEvent.adj_end_date);
+  const tour_check_live = field_updates[0]?.tournamentName; 
 
-  if (tour_check === tour_check_live && !isPostTourney ){
-    console.log("Using DG Data, continue")
-  } else if (tour_check_live != tour_check && isPostTourney && time_check){
-    console.log("Updating ESPN data.");
-    get_final_earnings();
-    return
-  } 
+// If names match and tournament is active, use DataGolf
+const tour_check_live = field_updates[0].tournamentName;
+
+if (tour_check === tour_check_live && !isPostTourney) {
+  console.log("Using DG Data, continue");
+} else {
+  // If names mismatch OR it's post-tourney, fallback to ESPN
+  console.log("Name mismatch or Post-Tourney: Updating via ESPN.");
+  get_final_earnings();
+  return; // IMPORTANT: Stop execution here to prevent clearing SHT_PLAYERLIVE with empty DG data
+}
 
   //if (tour_check_live === tour_check && time_check) {
    // console.log("Updating ESPN data.");
@@ -179,7 +183,7 @@ const fieldsForLookup = [
   global.setValues_keys(finalDataset_time_stamp, SHT_PLAYERLIVE);
 
   // Pass the data we just built directly to the next function
-  update_pool_leaderboard(finalDataset_time_stamp);
+  update_pool_leaderboard(currentEvent, finalDataset_time_stamp);
 
 }
 
