@@ -7,7 +7,7 @@
 
 function get_baseline_data() {
  const currentEvent = getCurrentEvent(SHT_LOOKUPTOURNAMENT);
-  const { dgToEspnMap, espnToDgMap } = getAthleteIdMaps();
+  const { dgToEspn, espnToDg } = getAthleteIdMaps();
   const athlete_data = global.readSheetData(SHT_ATHLETES);
   const lookup_liv_players = SHT_LIV_PLAYERS.getRange(4,14,SHT_LIV_PLAYERS.getLastRow(),2).getValues()
     .map(([id]) => ({ id_athlete_espn: String(id[0]), id_athlete_dg: String(id[1]), active_LIV_player: 'yes' }));
@@ -43,7 +43,7 @@ function get_baseline_data() {
   const espnRanksRaw = (urls.espn && responses[5]?.getResponseCode() === 200) ? parseEspnRankData(responses[5].getContentText()) : [];
 
   // 4. Perform efficient merges using the Generic Merge utility
-  let rankings_map = mergeArrayData(dgRanksRaw, dgToEspnMap, espnToDgMap, 'id_athlete_dg');
+  let rankings_map = mergeArrayData(dgRanksRaw, dgToEspn, espnToDg, 'id_athlete_dg');
   let rankings_espn = merge_data(rankings_map, espnRanksRaw, 'id_athlete_espn');
   let rankings_final = add_selection_name_LIV(rankings_espn, lookup_liv_players);
 
@@ -67,7 +67,7 @@ function get_baseline_data() {
   global.setValues_keys(final_dataset, SHT_PLAYERDATA);
 }
 
-function get_dg_rankings_v2(dgToEspnMap,espnToDgMap) {
+function get_dg_rankings_v2(dgToEspn,espnToDg) {
 
   const headers = ['id_athlete_dg','player_name', 'owgr_rank',	'datagolf_rank', 'primary_tour',	'isAmateur',	'country',	'skill_estimate']
  
@@ -120,7 +120,7 @@ function get_dg_rankings_v2(dgToEspnMap,espnToDgMap) {
     return obj;
   });
 
-  const finalArray = mergeArrayData(outputArray, dgToEspnMap, espnToDgMap, 'id_athlete_dg')
+  const finalArray = mergeArrayData(outputArray, dgToEspn, espnToDg, 'id_athlete_dg')
 
   return finalArray
 
@@ -263,13 +263,13 @@ function get_player_decomp() {
     return obj;
   });
 
-  //const finalArray = mergeArrayData(dataArray, dgToEspnMap, espnToDgMap, 'id_athlete_dg')
+  //const finalArray = mergeArrayData(dataArray, dgToEspn, espnToDg, 'id_athlete_dg')
 
   return finalArray
 
 }
 
-function dg_get_field_updates_3(dgToEspnMap,espnToDgMap,currentEvent) {
+function dg_get_field_updates_3(dgToEspn,espnToDg,currentEvent) {
 
   const endpoint = `${SOURCEURL_DG}${ENDPT_FIELD_UPDATES}?${FILEFORMAT}${API_DG}`;
 
@@ -327,7 +327,7 @@ function dg_get_field_updates_3(dgToEspnMap,espnToDgMap,currentEvent) {
     return obj;
   });
 
-  const dataset_espn_id = mergeArrayData(outputArray, dgToEspnMap, espnToDgMap, 'id_athlete_dg')
+  const dataset_espn_id = mergeArrayData(outputArray, dgToEspn, espnToDg, 'id_athlete_dg')
 
   const finalDataset = dataset_espn_id.map(player => {
     return {
@@ -394,7 +394,7 @@ function get_skill_ratings() {
     return obj;
   });
 
-  //const finalArray = mergeArrayData(dataArray, dgToEspnMap, espnToDgMap, 'id_athlete_dg')
+  //const finalArray = mergeArrayData(dataArray, dgToEspn, espnToDg, 'id_athlete_dg')
 
   return finalArray
 
