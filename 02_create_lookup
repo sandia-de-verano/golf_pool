@@ -38,22 +38,22 @@ function create_lookup_table() {
   const late_max = Math.max(...tee_times_flat);
   const update_min = Math.min(...tee_times_flat_update);
 
-  const calendar_filter = calendar_raw.filter(obj => obj.isPoolEvent === true && obj.startDate && obj.endDate && obj.endDate >= TODAY);
+  const calendar_filter = calendar_raw.filter(obj => obj.startDate_mt && obj.endDate_mt && obj.endDate_mt >= TODAY && obj.league === 'pga');
 
-  calendar_filter.sort((a, b) => a.startDate - b.startDate);
+  calendar_filter.sort((a, b) => a.startDate_mt - b.startDate_mt);
 
 const lookup_array = []
 
 let i = 0
 
 for (const event of calendar_filter) {
-  let update_date = new Date(event.startDate);
+  let update_date = new Date(event.startDate_mt);
   update_date.setDate(update_date.getDate()+2);
   //update_date.setHours(0,0,0,0)
 
-  let start_date = new Date(event.startDate);
+  let start_date = new Date(event.startDate_mt);
   //start_date.setHours(0,0,0,0)
-  let end_date = new Date(event.endDate);
+  let end_date = new Date(event.endDate_mt);
   end_date.setDate(end_date.getDate() + 1);
   //end_date.setHours(0,0,0,0)
 
@@ -64,8 +64,8 @@ for (const event of calendar_filter) {
   const update_time = new Date(update_min)
   //update_time.setHours(0,0,0,0)
 
-  console.log(update_time)
-  console.log(update_date)
+  //console.log(update_time)
+  //console.log(update_date)
 
   let adj_start_date;
 
@@ -90,6 +90,8 @@ for (const event of calendar_filter) {
   } else {
     adj_update_date = update_date;
   }
+  let end_date_final = new Date(adj_end_date);
+  end_date_final.setDate(end_date_final.getDate() + 1);
 
   let pool_opens = new Date(adj_start_date);
   pool_opens.setDate(pool_opens.getDate() - 3);
@@ -128,12 +130,12 @@ for (const event of calendar_filter) {
   lookup_array.push([
     tourItem,
     event.id_tournament,
-    event.id_event,
+    event.id_event_espn,
     event.tournamentName,
     event.league,
     event.year,
-    event.startDate,
-    event.endDate,
+    event.startDate_mt,
+    event.endDate_mt,
     event.purse,
     event.eventStatus,
     adj_start_date,
@@ -145,15 +147,17 @@ for (const event of calendar_filter) {
     updates_due_note,
     updates_due,
     results_note,
-    event.url_event
-  ])
+    event.url_event,
+    event.isPoolEvent, // NEW: Add the pool flag here
+    end_date_final
+  ]);
 
   }
 
  headers = [
     'tourItem',
     'id_tournament',
-    'id_event',
+    'id_event_espn',
     'tournamentName',
     'league',
     'year',
@@ -170,7 +174,9 @@ for (const event of calendar_filter) {
     'updates_due_note_date',
     'updates_due_date',
     'results_note_date',
-    'url_event'
+  'url_event',
+  'isPoolEvent',
+  'end_date_final'
  ]
 
   SHT_LOOKUPTOURNAMENT.clearContents()
