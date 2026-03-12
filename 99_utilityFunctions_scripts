@@ -192,4 +192,20 @@ function merge_data(primary, secondary, joinKey) {
 }
 
 // ---------------------------------------------------------------------------
+function add_keys(dataset,headers) {
+  const keys_data = dataset.map(row => {
+    let obj = {};
+    headers.forEach((header, index) => {
+      // Convert date strings to Date objects for easy comparison
+      if (header.toLowerCase().includes('date')) {
+        obj[header] = row[index] ? new Date(row[index]) : null;
+      } else {
+        obj[header] = row[index];
+      }
+    });
+    return obj;
+  });
+
+  return keys_data
+}
 
