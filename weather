@@ -1,199 +1,156 @@
-function get_weather_forecast() {
+function open_weather() {
+  const apiKey = ''
+
   const currentEvent = getCurrentEvent(SHT_LOOKUPTOURNAMENT);
-    if (!currentEvent) return;
-  const id_event = currentEvent.id_event;
+      if (!currentEvent) return;
+    const id_event_espn = currentEvent.id_event_espn;
 
+  const locations = global.readSheetData(SHT_COURSE_WEATHER);
 
-const locations = global.readSheetData(SHT_COURSE_INFO);
+    const event_location = locations.filter(item => 
+      String(item.id_event_espn) === String(id_event_espn)
+    );
 
-  const event_location = locations.filter(item => 
-    String(item.id_event) === String(id_event)
-  );
-
-  if (event_location.length === 0) {
-      console.log('No events');
-      return; 
-  } 
-
-  const endpoint = event_location[0].forecast;
-  console.log(endpoint)
-
-  // --- 1. Fetch Data ---
-  let data;
-  try {
-    const response = UrlFetchApp.fetch(endpoint, { muteHttpExceptions: true });
-    if (response.getResponseCode() !== 200) {
-      throw new Error(`HTTP Error ${response.getResponseCode()}`);
+    if (event_location.length === 0) {
+        console.log('No events');
+        return; 
     }
-    data = JSON.parse(response.getContentText());
-  } catch (e) {
-    console.log(`Failed to fetch DataGolf rankings: ${e.message}`);
-    return;
-  }
 
-  const forecast_periods = data?.properties?.periods;
+  const current_results = [];
+  const forcast_results = [];
 
-  let forcast_data = [];
+    const courseName = event_location[0].std_course_name;
+    const lat = event_location[0].lat;
+    const lon = event_location[0].lon;
+    const lat_lon = lat+","+lon
 
-  const elevation = data?.properties?.elevation?.value || '';
+      try {
+        // Construct the API URL (units=metric for Celsius, imperial for Fahrenheit)
+        const url = `https://api.openweathermap.org/data/3.0/onecall?lat=${lat}&lon=${lon}&appid=${apiKey}&units=imperial`;
 
-  console.log(forecast_periods)
-  console.log(elevation)
+        console.log(url)
+        
+        const response = UrlFetchApp.fetch(url, { muteHttpExceptions: true });
+        const data = JSON.parse(response.getContentText());
+        const forecast_data = data.daily
+        const curr = data.current;
+        const today_forecast = forecast_data[0]; // Used for min/max and rain
 
-  for (const period of forecast_periods) {
-      const day = period.name || '';
-      const is_day = period.isDaytime || '';
-      const temperature = period.temperature || '';
-      const temperature_trend = period.temperatureTrend || '';
-      const prob_precipitation = ((period.probabilityOfPrecipitation?.value) * .01) || '';
-      const wind_speed = period.windSpeed || '';
-      const wind_dir = period.windDirection || '';
-      const short_forecast = period.shortForecast || '';
-      const detailed_forecast = period.detailedForecast || '';
+        const current_obj = {
+          courseName: courseName,
+          lat: lat,
+          lon: lon,
+          lat_lon: lat_lon,
+          current_time_location: Utilities.formatDate(new Date((curr.dt + data.timezone_offset) * 1000), "GMT", "yyyy-MM-dd HH:mm:ss"),
+          feels_like: curr.feels_like,
+          temp: curr.temp,
+          temp_max: today_forecast.temp.max,
+          temp_min: today_forecast.temp.min,
+          dew_point: curr.dew_point,
+          heat_index: calculateHeatIndex(curr.temp, curr.humidity),
+          wind_chill: calculateWindChill(curr.temp, curr.wind_speed),
+          pressure: curr.pressure,
+          daily_pop: today_forecast.pop || 0,
+          daily_rain: today_forecast.rain || 0,
+          wind_speed: curr.wind_speed || 0, 
+          wind_gust: curr.wind_gust || 0,
+          wind_deg: curr.wind_deg || 0,
+          humidity: curr.humidity || 0,
+          clouds: curr.clouds,
+          visibility: curr.visibility,
+          weather_id: curr.weather[0].id,
+          weather_main: curr.weather[0].main,
+          weather_description: toTitleCase(curr.weather[0].description),
+          sunrise: Utilities.formatDate(new Date((curr.sunrise + data.timezone_offset) * 1000), "GMT", "yyyy-MM-dd HH:mm:ss"),
+          sunset: Utilities.formatDate(new Date((curr.sunset + data.timezone_offset) * 1000), "GMT", "yyyy-MM-dd HH:mm:ss"),
+          uvi: curr.uvi
+    };
+    current_results.push(current_obj);
+
       
-    const rowData = [
-        elevation,
-        day,
-        is_day,
-        temperature,
-        temperature_trend,
-        prob_precipitation,
-        wind_speed,
-        wind_dir,
-        short_forecast,
-        detailed_forecast,
-    ]
+    forecast_data.forEach((day) => {
+      forcast_results.push({
+        courseName: courseName,
+        lat: lat,
+        lon: lon,
+        lat_lon: lat_lon,
+        forcast_time_location: Utilities.formatDate(new Date((day.dt + data.timezone_offset) * 1000), "GMT", "yyyy-MM-dd HH:mm:ss"),
+        daily_feels_like: day.feels_like.day,
+        daily_temp_day: day.temp.day,
+        daily_temp_max: day.temp.max,
+        daily_temp_min: day.temp.min,
+        daily_dew_point: day.dew_point,
+        daily_heat_index: calculateHeatIndex(day.temp.day, day.humidity),
+        daily_wind_chill: calculateWindChill(day.temp.day, day.wind_speed),
+        daily_pressure: day.pressure,
+        daily_pop: day.pop || 0,
+        daily_rain: day.rain || 0,
+        daily_wind_speed: day.wind_speed || 0,
+        daily_wind_gust: day.wind_gust || 0,
+        daily_wind_deg: day.wind_deg || 0,
+        daily_humidity: day.humidity || 0,
+        daily_clouds: day.clouds,
+        daily_visibility: day.visibility || 10000,
+        daily_weather_id: day.weather[0].id,
+        daily_weather_main: day.weather[0].main,
+        daily_weather_description: toTitleCase(day.weather[0].description), 
+        daily_summary: day.summary,
+        daily_moon_phase: day.moon_phase,
+        daily_uvi: day.uvi
+      });
+    });
 
-    forcast_data.push(rowData)
-  }
+      } catch (e) {
+        //console.error("Error fetching data for " + courseName + ": " + e);
+      }
 
-  headers = [
-    'elevation',
-          'day',
-        'is_day',
-        'temperature',
-        'temperature_trend',
-        'prob_precipitation',
-        'wind_speed',
-        'wind_dir',
-        'short_forecast',
-        'detailed_forecast',
-  ]
-
-  const dataset = add_keys(forcast_data,headers)
-
-  SHT_WEATHER_FORECAST.clearContents();
-  global.setValues_keys(dataset,SHT_WEATHER_FORECAST)
+  SHT_WEATHER_FORECAST_v2.clearContents()
+  global.setValues_keys(forcast_results,SHT_WEATHER_FORECAST_v2)
+  SHT_WEATHER_CURRENT_v2.clearContents()
+  global.setValues_keys(current_results,SHT_WEATHER_CURRENT_v2)
 
 }
 
-function current_weather() {
+function calculateHeatIndex(temp, humidity) {
+  // 1. Initial Simplified Calculation
+  let hi = 0.5 * (temp + 61.0 + ((temp - 68.0) * 1.2) + (humidity * 0.094));
 
-const now = new Date().getTime();
-const closestWeather = {};
+  // 2. If the average is above 80°F, use the full regression formula
+  if (hi >= 80) {
+    hi = -42.379 + 2.04901523 * temp + 10.14333127 * humidity 
+         - 0.22475541 * temp * humidity - 0.00683783 * temp * temp 
+         - 0.05481717 * humidity * humidity + 0.00122874 * temp * temp * humidity 
+         + 0.00085282 * temp * humidity * humidity - 0.00000199 * temp * temp * humidity * humidity;
 
-const currentEvent = getCurrentEvent(SHT_LOOKUPTOURNAMENT);
-    if (!currentEvent) return;
-  const id_event = currentEvent.id_event;
-
-
-const locations = global.readSheetData(SHT_COURSE_INFO);
-
-  const event_location = locations.filter(item => 
-    String(item.id_event) === String(id_event)
-  );
-
-  if (event_location.length === 0) {
-      console.log('No events');
-      return; 
-  } 
-
-  const endpoint = event_location[0].forecast_current;
-  console.log(endpoint)
-
-  let dataset = []
-
-  let data;
-  try {
-    const response = UrlFetchApp.fetch(endpoint, { muteHttpExceptions: true });
-    if (response.getResponseCode() !== 200) {
-      throw new Error(`HTTP Error ${response.getResponseCode()}`);
-    }
-    data = JSON.parse(response.getContentText());
-  } catch (e) {
-    console.log(`Failed to fetch DataGolf rankings: ${e.message}`);
-    return;
-  }
-
-  const props = data.properties
-
-for (let key in props) {
-    const item = props[key];
-
-    if (item && typeof item === 'object' && Array.isArray(item.values) && item.values.length > 0) {
-      
-      const closestEntry = item.values.reduce((prev, curr) => {
-        const currTime = new Date(curr.validTime.split('/')[0]).getTime();
-        const prevTime = new Date(prev.validTime.split('/')[0]).getTime();
-        return Math.abs(now - currTime) < Math.abs(now - prevTime) ? curr : prev;
-      });
-
-      let val = closestEntry.value;
-
-      if (Array.isArray(val) && val.length > 0 && typeof val[0] === 'object') {
-        const wData = val[0]; // Take the first weather condition found
-        
-        // You can combine them into one descriptive string:
-        // Example: "slight_chance rain light"
-        closestWeather['weather_summary'] = [
-          wData.coverage, 
-          wData.weather, 
-          wData.intensity
-        ].filter(Boolean).join(' '); // .filter(Boolean) removes nulls
-        
-        // Or set them as individual keys:
-        closestWeather['weather_coverage'] = wData.coverage;
-        closestWeather['weather_type'] = wData.weather;
-        closestWeather['weather_intensity'] = wData.intensity;
-        
-        continue; // Move to the next property in the loop
-      }
-
-      const unit = item.uom || ""; // e.g., "wmoUnit:degC"
-
-      // Skip processing if value is null
-      if (val === null || val === undefined) {
-        closestWeather[key] = '';
-        continue;
-      }
-
-      // --- CONVERSION LOGIC ---
-      if (unit.includes("degC")) {
-        // Celsius to Fahrenheit: (C * 9/5) + 32
-        val = (val * 9 / 5) + 32;
-      } 
-      else if (unit.includes("km_h-1")) {
-        // km/h to mph: kmh * 0.621371
-        val = val * 0.621371;
-      }
-      else if (unit.includes("percent")) {
-
-        val = Math.round((val*.01));
-      }
-
-      if (typeof val === 'number' && !isNaN(val)) {
-        closestWeather[key] = Number(val.toFixed(2));
-      } else {
-        closestWeather[key] = (val === null || val === undefined) ? '' : val;
-      }
+    // 3. Adjustment for Low Humidity (RH < 13% and Temp between 80-112°F)
+    if (humidity < 13 && temp >= 80 && temp <= 112) {
+      let adjustment = ((13 - humidity) / 4) * Math.sqrt((17 - Math.abs(temp - 95)) / 17);
+      hi -= adjustment;
+    } 
+    // 4. Adjustment for High Humidity (RH > 85% and Temp between 80-87°F)
+    else if (humidity > 85 && temp >= 80 && temp <= 87) {
+      let adjustment = ((humidity - 85) / 10) * ((87 - temp) / 5);
+      hi += adjustment;
     }
   }
 
-  const final_dataset = []
-  final_dataset.push(closestWeather)
+  return hi;
+}
 
+function calculateWindChill(temp,wind){
+  let wind_chill;
+  if (temp <= 50 && wind > 3) {
+    wind_chill = 35.74 + 0.6215 * temp - 35.75 * Math.pow(wind, 0.16) + 0.4275 * temp * Math.pow(wind, 0.16);
+  } else {
+    wind_chill = temp; // Wind chill is not applicable
+  }
 
-  SHT_WEATHER_CURRENT.clearContents();
-  global.setValues_keys(final_dataset,SHT_WEATHER_CURRENT)
+  return wind_chill;
 
+}
+
+function toTitleCase(str) {
+  return str.split(' ')
+    .map(word => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
+    .join(' ');
 }
