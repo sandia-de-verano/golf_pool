@@ -10,7 +10,12 @@ function get_baseline_data() {
   const { dgToEspn, espnToDg } = getAthleteIdMaps();
   const athlete_data = global.readSheetData(SHT_ATHLETES);
   const lookup_liv_players = SHT_LIV_PLAYERS.getRange(4,14,SHT_LIV_PLAYERS.getLastRow(),2).getValues()
-    .map(([id]) => ({ id_athlete_espn: String(id[0]), id_athlete_dg: String(id[1]), active_LIV_player: 'yes' }));
+    .filter(row => row[0] !== "" || row[1] !== "") // Optional: filter out empty rows
+    .map(row => ({ 
+      id_athlete_espn: String(row[0]), 
+      id_athlete_dg: String(row[1]), 
+      active_LIV_player: 'yes' 
+    }));
 
   // 1. Define all URLs
   const urls = {
@@ -45,7 +50,10 @@ function get_baseline_data() {
   // 4. Perform efficient merges using the Generic Merge utility
   let rankings_map = mergeArrayData(dgRanksRaw, dgToEspn, espnToDg, 'id_athlete_dg');
   let rankings_espn = merge_data(rankings_map, espnRanksRaw, 'id_athlete_espn');
-  let rankings_final = add_selection_name_LIV(rankings_espn, lookup_liv_players);
+  let rankings_with_liv = merge_data(rankings_espn, lookup_liv_players, 'id_athlete_dg');
+  let rankings_final = add_selection_name_LIV(rankings_with_liv, lookup_liv_players);
+
+  console.log(rankings_final[1])
 
   // Save Rankings
   SHT_RANKINGS.clearContents();
@@ -165,7 +173,7 @@ function add_selection_name_LIV(rankings_dataset,liv_players){
             playerSelection_name: combinedValue, // Add the new property
             adjusted_rank: adjusted_rank,
             rank_flag: rank_flag,
-            isActiveLIV: isActiveLIV,
+            //isActiveLIV: isActiveLIV,
           }
         });
 
@@ -605,7 +613,7 @@ function parseDgRankData(jsonContent) {
   const rankings = data.rankings || [];
   return rankings.map(rank => ({
     id_athlete_dg: rank.dg_id ?? '',
-    player_name: swapNameOrder(rank.player_name),
+    fullName: swapNameOrder(rank.player_name),
     owgr_rank: rank.owgr_rank,
     datagolf_rank: rank.datagolf_rank,
     primary_tour: rank.primary_tour ?? '',
