@@ -2,7 +2,7 @@ function get_final_earnings() {
 
    const currentEvent = getCurrentEvent(SHT_LOOKUPTOURNAMENT);
       if (!currentEvent) return;
-      const id_event = currentEvent.id_event.toString()
+      const id_event = currentEvent.id_event_espn.toString()
 			const id_tournament = currentEvent.id_tournament.toString()
       const url_event = currentEvent.url_event
 			const year = currentEvent.year
@@ -28,10 +28,11 @@ function get_final_earnings() {
     const eventData = JSON.parse(eventResponse.getContentText());
     const competitorsSummary = eventData.competitions?.[0]?.competitors || [];
 
-    if (eventData?.status?.type?.name != 'STATUS_FINAL' ) {
-      console.log('Event not final');
-      return; 
-    } 
+const status = eventData?.status?.type?.name;
+if (status !== 'STATUS_FINAL' && status !== 'STATUS_IN_PROGRESS') {
+  console.log('Event not yet active or in valid state');
+  return; 
+}
 
 // --------------------------------
 
@@ -50,16 +51,19 @@ function get_final_earnings() {
 
   ath_info_keys = add_keys(athlete_info,headers_ath_info)
 
+  console.log(ath_info_keys[0])
+
 // ------------------------------------
 
 
-  const finalDataset = merge_data(ath_info_keys, player_live_raw, 'id_athlete_espn')
-    //merge_live_data_espn_id(player_live_raw,ath_info_keys)
+  const finalDataset = merge_live_data_espn_id(player_live_raw,ath_info_keys)
+    //merge_live_data_espn_id(player_live_raw,ath_info_keys
 
-    const finalDataset_time_stamp = finalDataset.map(item => ({
-      ...item, // This "spreads" the existing keys (name, earnings, etc.)
-      last_data_pull: new Date().getTime() // Adds the new one
-    }));
+
+  const finalDataset_time_stamp = finalDataset.map(item => ({
+    ...item, 
+    last_data_pull: new Date().getTime() 
+  }));
 
     finalDataset_time_stamp.sort((a, b) => a.adjusted_rank - b.adjusted_rank);
     finalDataset_time_stamp.sort((a, b) => a.current_score - b.current_score);
