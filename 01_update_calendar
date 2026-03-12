@@ -1,85 +1,219 @@
 function update_events_calendar() {
+  const endpoint = `${SOURCEURL_ESPN}/v2/sports/${SPORT}/leagues/all/calendar/ondays`;
+  const dg_endpoint = `${SOURCEURL_DG}${ENDPT_SCH}?${FILEFORMAT}${API_DG}`;
+  const event_ids = global.readSheetData(SHT_HIST_EVT_ID)
+
+  const event_ids_current_year = event_ids.filter(obj => obj.url_event.toString().trim() !== '' && !obj.url_event.toLowerCase().includes("sga")&& obj.year === YEAR);
+      const event_id_url = [] 
+      for (const event of event_ids_current_year) {
+        event_id_url.push([
+          event.url_event
+        ]);
+      }
+  
+  const flat_event_id_data = event_id_url.flat()
+  console.log(`espn endpoint: ${endpoint}`)
+  console.log(`dg endpoint: ${dg_endpoint}`)
 
   const tournaments_raw = SHT_POOL_TOURNAMENTS.getDataRange().getValues();
     const tour_values = tournaments_raw.slice(1);
     const tour_flat = tour_values.flat();
 
-// __________________________________________________________________
+  const dg_calendar_raw = fetch_url(dg_endpoint)
+  const dg_calendar = dg_calendar_raw.schedule
 
-  const endpoint = `${SOURCEURL_ESPN}/v2/sports/${SPORT}/leagues/all/calendar/ondays`;
+  console.log(dg_calendar.length)
 
-  console.log(`endpoint: ${endpoint}`)
+  const espn_calendar_raw = fetch_url(endpoint)
+    const cal_sections = espn_calendar_raw.sections
+    const cal_data = []
+      for (const event of cal_sections) {
+        cal_data.push([
+          event.event.$ref ?? '',
+        ]);
+      }
 
-  const calendar_raw = fetch_url(endpoint)
-  const cal_sections = calendar_raw.sections; 
-
-  const sample = cal_sections.slice(0,10)
-
-  const cal_data = []
-  for (const event of sample) {
-    cal_data.push([
-      event.event.$ref ?? '',
-    ]);
-  }
-
-  const flat_cal_Data = cal_data.flat()
-  const fil_cal_data = flat_cal_Data.filter(obj => !obj.includes("sga"))
-
-  console.log(`fil_cal_data: ${fil_cal_data.length}`)
-
-// __________________________________________________________________
-
-  const event_ids = SHT_HIST_EVT_ID.getDataRange().getValues();
-
-  const event_headers = event_ids[0];
-  const event_values = event_ids;
-
-  const f_event_id = add_keys(event_values,event_headers)
-
-  const fil_event_id = f_event_id.filter(obj => obj.url_event.toString().trim() !== '' && !obj.url_event.toLowerCase().includes("sga")&& obj.year === 2026);
-
-  const event_id_url = [] 
-  for (const event of fil_event_id) {
-    event_id_url.push([
-      event.url_event
-    ]);
-  }
-
-  const flat_event_id_data = event_id_url.flat()
-  console.log(`flat_event_id_data: ${flat_event_id_data.length}`)
+    const flat_cal_Data = cal_data.flat()
+    const fil_cal_data = flat_cal_Data.filter(obj => !obj.includes("sga"))
 
   let all_urls = []
-  all_urls = [...new Set([...flat_event_id_data, ...fil_cal_data])]
-
-  console.log(`all_urls: ${all_urls.length}`)
+    all_urls = [...new Set([...flat_event_id_data, ...fil_cal_data])]
+    console.log(`all_urls: ${all_urls.length}`)
   
   const batch_size = 50
   const fetched_data =  batchfetch_v2(all_urls,batch_size)
   const schedule_data = parseData_event_calendar(fetched_data,tour_flat)
- 
-  const headers = ['isPoolEvent',	'id_lookup',	'id_tournament',	'id_event',	'year',	'tournamentName',	'league',	'startDate',	'endDate',	'purse',	'eventStatus', 'id_athlete_defChamp',	'defChamp_fullName',	'id_athlete_winner',	'winner_fullName','id_venue', 'venueName',	'location',	'numCompetitors',	'url_event']
+
+  const finalResults = merge_golf_data_final(schedule_data, dg_calendar);
 
   SHT_CALENDAR.clearContents();
-   global.setValues(schedule_data,SHT_CALENDAR,headers)
+  global.setValues_keys(finalResults,SHT_CALENDAR)
 }
 
 // ------------------------------------------------------
 
-function add_keys(dataset,headers) {
-  const keys_data = dataset.map(row => {
-    let obj = {};
-    headers.forEach((header, index) => {
-      // Convert date strings to Date objects for easy comparison
-      if (header.toLowerCase().includes('date')) {
-        obj[header] = row[index] ? new Date(row[index]) : null;
-      } else {
-        obj[header] = row[index];
+function slugify(text) {
+  if (!text) return "";
+  return text.toString().toLowerCase()
+    .replace(/\b(the|presented by|at|classic|championship|open|invitational|tournament)\b/gi, '')
+    .replace(/[^a-z0-9]/g, '') // Remove all non-alphanumeric chars
+    .trim();
+}
+
+
+function merge_golf_data_final(espnArray, dgArray) {
+
+  const finalResults = [];
+  const matchedDgIndices = new Set();
+  const FUZZY_THRESHOLD = 0.7;
+
+  // 1. Define your Default Fields
+  const DEFAULTS = {
+    isPoolEvent: false,
+  id_tournament: '',
+  id_event_espn: '',
+  year: 2026,
+  tournamentName: '',
+  league: '',
+  startDate_mt: '',
+  endDate_mt: '',
+  start_date: '',
+  purse: 0,
+  eventStatus: '',
+  defChamp_id: '',
+  defChamp_fullName: '',
+  winner_id: '',
+  winner_fullName: '',
+  id_venue: '',
+  venueName: '',
+  location: '',
+  numCompetitors: 0,
+  url_event: '',
+  country: '',
+  course: '',
+  course_key: '',
+  event_id: '',
+  event_name: '',
+  latitude: 0,
+  location: '',
+  longitude: 0,
+  start_date: '',
+  status: '',
+  tour: '',
+  winner: ''
+  };
+
+const slugify = (text) => {
+    if (!text) return "";
+    return text.toString().toLowerCase()
+      .replace(/\b(the|presented by|pres\. by|at|classic|championship|open|invitational|tournament|liv|pga|lpga|korn ferry|dp world|bmw|fedex|st|visa)\b/gi, '')
+      .replace(/[^a-z0-9]/g, '')
+      .trim();
+  };
+
+const getDayDiff = (d1, d2) => {
+    const date1 = new Date(d1);
+    const date2 = new Date(d2);
+    if (isNaN(date1) || isNaN(date2)) return 999;
+    return Math.abs((date1 - date2) / (1000 * 60 * 60 * 24));
+  };
+
+  // 2. Loop through ESPN Array
+  espnArray.forEach((espnItem) => {
+    const eName = espnItem.tournamentName || espnItem.event_name || "Unknown";
+    const eDate = String(espnItem.start_date || "").substring(0, 10);
+    const eSlug = slugify(eName);
+
+    let bestMatchIndex = -1;
+    let highestScore = 0;
+
+    // 3. Search Data Golf for a partner
+    for (let j = 0; j < dgArray.length; j++) {
+      if (matchedDgIndices.has(j)) continue;
+
+      const dgItem = dgArray[j];
+      const dgDate = String(dgItem.start_date || "").substring(0, 10);
+      
+      // Match if within a 7-day window
+      if (getDayDiff(eDate, dgDate) <= 7) {
+        const dgName = dgItem.event_name || dgItem.name || "";
+        const dgSlug = slugify(dgName);
+        const score = getSimilarityScore(eSlug, dgSlug);
+
+        if (eSlug.includes(dgSlug) || dgSlug.includes(eSlug) || score > FUZZY_THRESHOLD) {
+          if (score > highestScore) {
+            highestScore = score;
+            bestMatchIndex = j;
+          }
+        }
       }
-    });
-    return obj;
+    }
+
+    if (bestMatchIndex !== -1) {
+      // --- MERGED ROW ---
+      matchedDgIndices.add(bestMatchIndex);
+      const dgItem = dgArray[bestMatchIndex];
+      finalResults.push({
+        ...DEFAULTS,
+        ...espnItem, // ESPN data takes priority for structure
+        ...dgItem,   // DG data fills in the gaps
+        event_name: eName, // Keep the ESPN name as primary
+        id_tournament: espnItem.id_tournament || DEFAULTS.id_tournament,
+      });
+    } else {
+      // --- ESPN ONLY ---
+      finalResults.push({
+        ...DEFAULTS,
+        ...espnItem,
+        event_name: eName,
+        id_tournament: espnItem.id_tournament || DEFAULTS.id_tournament,
+      });
+    }
   });
 
-  return keys_data
+  // 4. Add Data Golf items that never found an ESPN partner
+  dgArray.forEach((dgItem, index) => {
+    if (!matchedDgIndices.has(index)) {
+      finalResults.push({
+        ...DEFAULTS,
+        ...dgItem,
+        event_name: dgItem.event_name || DEFAULTS.event_name,
+      });
+    }
+  });
+
+  // 5. Final Sort by Date
+  return finalResults.sort((a, b) => new Date(a.start_date) - new Date(b.start_date));
+}
+
+/**
+ * Similarity Scoring Helpers
+ */
+function getSimilarityScore(s1, s2) {
+  if (s1 === s2) return 1.0;
+  if (!s1 || !s2) return 0;
+  const longer = s1.length > s2.length ? s1 : s2;
+  const shorter = s1.length > s2.length ? s2 : s1;
+  return (longer.length - editDistance(longer, shorter)) / longer.length;
+}
+
+function editDistance(s1, s2) {
+  let costs = [];
+  for (let i = 0; i <= s1.length; i++) {
+    let lastValue = i;
+    for (let j = 0; j <= s2.length; j++) {
+      if (i == 0) costs[j] = j;
+      else if (j > 0) {
+        let newValue = costs[j - 1];
+        if (s1.charAt(i - 1) != s2.charAt(j - 1))
+          newValue = Math.min(Math.min(newValue, lastValue), costs[j]) + 1;
+        costs[j - 1] = lastValue;
+        lastValue = newValue;
+      }
+    }
+    if (i > 0) costs[s2.length] = lastValue;
+  }
+  return costs[s2.length];
 }
 
 function extractChampionInfo(championData){
@@ -190,16 +324,17 @@ function parseData_event_calendar(dataArray, tour_flat) {
 
     const url_tour = data.tournament.$ref || '';
     const tournament_parsedData = parseUrl(url_tour);
-    const league = tournament_parsedData[0] || '';
+    const league = (tournament_parsedData[0] || '').toUpperCase();
     const id_tournament = tournament_parsedData[1] || '';
       const str_id_tour = id_tournament.toString();
     const year = tournament_parsedData[2] || '';
-    const id_event = safeGet(data, 'id') || '';
+    const id_event_espn = safeGet(data, 'id') || '';
     const isPoolEvent = tour_flat.includes(str_id_tour);
     const id_lookup = year +'_'+ id_tournament || '';
     const tournamentName = safeGet(data, 'name') || '';
     const startDate = safeGet(data, 'date') || '';
       const startDate_mt = global.convertUTCtoET(startDate)
+      const start_date = startDate.split ('T')[0];
     const endDate = safeGet(data, 'endDate') || '';
       const endDate_mt = global.convertUTCtoET(endDate)
     const purse = safeGet(data, 'purse') || '';
@@ -232,36 +367,30 @@ function parseData_event_calendar(dataArray, tour_flat) {
     const numCompetitors = data.competitions[0]?.competitors.length || 0; // numCompetitors
     const url_event = safeGet(data, '$ref') || ''; // url_event
 
-    //console.log(`Fetch error for ${source.url_event}: ${errorMsg}`)
-      
-    //schedule_data: 12,poolEvent?,undefined_3354,3354,401811927,2026,The Sentry,pga,2026-01-08T05:00Z,2026-01-11T05:00Z,purse,STATUS_CANCELED,Canceled,5860,Hideki Matsuyama,winner,winner,urlvenue,idvenue,venueName,Location,??competitors,http://sports.core.api.espn.com/v2/sports/golf/leagues/pga/events/401811927?lang=en&region=us
-    
 
     // --- Build Row Array based on CONFIG_EVENTS.HEADERS ---
-    const rowData = [
+    const rowData = {
       isPoolEvent,
-      id_lookup,
       id_tournament,
-      id_event, 
+      id_event_espn, 
       year, 
       tournamentName,
       league,
       startDate_mt, 
-      endDate_mt, 
+      endDate_mt,
+      start_date, 
       purse,
       eventStatus, 
-      //eventStatusDesc, 
       defChamp_id, 
       defChamp_fullName, 
       winner_id, 
       winner_fullName,
-      //url_venue,
       id_venue, 
       venueName, 
       location,
       numCompetitors, 
       url_event, 
-    ];
+    };
 
     finalDataset.push(rowData);
   }
