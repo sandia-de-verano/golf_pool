@@ -173,7 +173,7 @@ function add_selection_name_LIV(rankings_dataset,liv_players){
             playerSelection_name: combinedValue, // Add the new property
             adjusted_rank: adjusted_rank,
             rank_flag: rank_flag,
-            //isActiveLIV: isActiveLIV,
+            isActiveLIV: isActiveLIV,
           }
         });
 
@@ -628,6 +628,7 @@ function parseDgFieldUpdates(jsonContent, currentEvent) {
   const data = JSON.parse(jsonContent);
   const field = data.field || [];
   return field.map(player => ({
+    fullName: swapNameOrder(player.player_name),
     id_athlete_dg: player.dg_id ?? '',
     id_event_dg: data.event_id ?? '',
     tournamentName: data.event_name ?? '',
