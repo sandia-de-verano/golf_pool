@@ -1,12 +1,14 @@
 function get_live_data_again() {
   // --- 1. Get Data ---
   const currentEvent = getCurrentEvent(SHT_LOOKUPTOURNAMENT);
+    if (!currentEvent) return console.log("No current event found. Exiting.");
     const id_tournament = currentEvent.id_tournament
     const id_event = currentEvent.id_event_espn
     const year = currentEvent.year
     const tournamentStarted = new Date() >= new Date(currentEvent.adj_start_date);
 
   const player_data_raw = global.readSheetData(SHT_PLAYERDATA);
+    if (!Array.isArray(player_data_raw) || player_data_raw.length === 0) return console.log("Player Data Raw is empty or not an array.");
     const tour_check = player_data_raw[0].tournamentName
 
   const player_live_raw = global.readSheetData(SHT_PLAYERLIVE);
@@ -16,10 +18,12 @@ function get_live_data_again() {
     const time_check = (now - updated_time) > thirty_min
 
   const prj_earn_table_raw = SHT_PROJ_EARNINGS_TABLE.getRange(1,8,SHT_PROJ_EARNINGS_TABLE.getLastRow(),2).getValues();
+    if (!Array.isArray(prj_earn_table_raw) || prj_earn_table_raw.length < 2) return console.log("Earnings table is empty.");
     const prj_earn_table_values = prj_earn_table_raw.slice(1);
     const prj_earn_table_headers = ['order','projected_earnings'];
 
   let prj_earn_table
+    //if (!Array.isArray(prj_earn_table)) return console.log("Failed to create prj_earn_table.");
     prj_earn_table = add_keys(prj_earn_table_values,prj_earn_table_headers)
     prj_earn_table = prj_earn_table.filter(obj => obj.order.toString().trim() !== '');
 
@@ -29,8 +33,9 @@ function get_live_data_again() {
   }, {});
 
   const live_tournament_raw = live_tournament();
-
   const field_updates = dg_get_field_updates_live();
+    if (!Array.isArray(field_updates) || field_updates.length === 0) return console.log("Field updates empty. Exiting.");
+
   const isPostTourney = !checkDateStatus(currentEvent.adj_end_date);
   const tour_check_live = field_updates[0]?.tournamentName; 
 
@@ -54,46 +59,42 @@ if (tour_check === tour_check_live && !isPostTourney) {
       const in_play_start_time = Math.min(...r1_times_utc);
 
   const in_play_raw = get_in_play(player_data_raw,in_play_start_time)
+    if (!Array.isArray(in_play_raw) || in_play_raw.length === 0) return console.log("In-play data is empty.");
     in_play_raw.sort((a, b) => a.current_score - b.current_score);
 
   //merge DG Data
   const merged_data_field = merge_data(player_data_raw, field_updates, 'id_athlete_dg')
-   // merge_live_data_dg_id(player_data_raw, field_updates)
   const merged_data_player_in_play = merge_data(merged_data_field, in_play_raw, 'id_athlete_dg')
-    //merge_live_data_dg_id(merged_data_field, in_play_raw)
   const merged_data_live = merge_data(merged_data_player_in_play, live_tournament_raw, 'id_athlete_dg')
-    //merge_live_data_dg_id(merged_data_player_in_play, live_tournament_raw)
+    if (!Array.isArray(merged_data_live) || merged_data_live.length === 0) return console.log("Merged data failed/empty.");
 
   merged_data_live.sort((a, b) => (a.current_score || 0) - (b.current_score || 0));
 
   const merged_data_earn = calculateGolfWinnings(merged_data_live, prizeMap,tournamentStarted)
+    if (!merged_data_earn || merged_data_earn.length === 0) return console.log("Calculation returned no data. Aborting write.");
 
   const filter_data = merged_data_earn.filter(obj => obj.make_cut > .5)
 
   const targetKey = 'current_score'
   const data_len = merged_data_earn.filter(obj => obj.distance && obj.distance !== "")
+    const count = data_len.length || 1;
 
-
-  //gir	prox_fw	prox_rgh	scrambling	great_shots	poor_shots
-
-  const projected_earnings = (data_len.reduce((sum, obj) => sum + (obj.projected_earnings || 0), 0)) / data_len.length;
-  const distance = (data_len.reduce((sum, obj) => sum + (obj.distance || 0), 0)) / data_len.length;
-  const accuracy = (data_len.reduce((sum, obj) => sum + (obj.accuracy || 0), 0)) / data_len.length;
-  const sg_app = (data_len.reduce((sum, obj) => sum + (obj.sg_app || 0), 0)) / data_len.length;
-  const sg_arg = (data_len.reduce((sum, obj) => sum + (obj.sg_arg || 0), 0)) / data_len.length;
-  const sg_ott = (data_len.reduce((sum, obj) => sum + (obj.sg_ott || 0), 0)) / data_len.length;
-  const sg_putt = (data_len.reduce((sum, obj) => sum + (obj.sg_putt || 0), 0)) / data_len.length;
-  const sg_t2g = (data_len.reduce((sum, obj) => sum + (obj.sg_t2g || 0), 0)) / data_len.length;
-  const sg_bs = (data_len.reduce((sum, obj) => sum + (obj.sg_bs || 0), 0)) / data_len.length;
-  const sg_total = (data_len.reduce((sum, obj) => sum + (obj.sg_total || 0), 0)) / data_len.length;
-  const gir = (data_len.reduce((sum, obj) => sum + (obj.gir || 0), 0)) / data_len.length;
-  const prox_fw = (data_len.reduce((sum, obj) => sum + (obj.prox_fw || 0), 0)) / data_len.length;
-  const prox_rgh = (data_len.reduce((sum, obj) => sum + (obj.prox_rgh || 0), 0)) / data_len.length;
-  const scrambling = (data_len.reduce((sum, obj) => sum + (obj.scrambling || 0), 0)) / data_len.length;
-  const great_shots = (data_len.reduce((sum, obj) => sum + (obj.great_shots || 0), 0)) / data_len.length;
-  const poor_shots = (data_len.reduce((sum, obj) => sum + (obj.poor_shots || 0), 0)) / data_len.length;
-
-
+  const projected_earnings = (data_len.reduce((sum, obj) => sum + (obj.projected_earnings || 0), 0)) / count;
+  const distance = (data_len.reduce((sum, obj) => sum + (obj.distance || 0), 0)) / count;
+  const accuracy = (data_len.reduce((sum, obj) => sum + (obj.accuracy || 0), 0)) / count;
+  const sg_app = (data_len.reduce((sum, obj) => sum + (obj.sg_app || 0), 0)) / count;
+  const sg_arg = (data_len.reduce((sum, obj) => sum + (obj.sg_arg || 0), 0)) / count;
+  const sg_ott = (data_len.reduce((sum, obj) => sum + (obj.sg_ott || 0), 0)) / count;
+  const sg_putt = (data_len.reduce((sum, obj) => sum + (obj.sg_putt || 0), 0)) / count;
+  const sg_t2g = (data_len.reduce((sum, obj) => sum + (obj.sg_t2g || 0), 0)) / count;
+  const sg_bs = (data_len.reduce((sum, obj) => sum + (obj.sg_bs || 0), 0)) / count;
+  const sg_total = (data_len.reduce((sum, obj) => sum + (obj.sg_total || 0), 0)) / count;
+  const gir = (data_len.reduce((sum, obj) => sum + (obj.gir || 0), 0)) / count;
+  const prox_fw = (data_len.reduce((sum, obj) => sum + (obj.prox_fw || 0), 0)) / count;
+  const prox_rgh = (data_len.reduce((sum, obj) => sum + (obj.prox_rgh || 0), 0)) / count;
+  const scrambling = (data_len.reduce((sum, obj) => sum + (obj.scrambling || 0), 0)) / count;
+  const great_shots = (data_len.reduce((sum, obj) => sum + (obj.great_shots || 0), 0)) / count;
+  const poor_shots = (data_len.reduce((sum, obj) => sum + (obj.poor_shots || 0), 0)) / count;
 
   const total = merged_data_earn.reduce((sum, obj) => sum + (obj[targetKey] || 0), 0);
   const average = total / merged_data_earn.length;
@@ -149,7 +150,7 @@ if (tour_check === tour_check_live && !isPostTourney) {
           id_tournament: item.id_tournament || '',
           id_event: id_event || '',
           id_event_dg: item.id_event_dg || '',
-          year: item.year || '',
+          year: item.year || YEAR,
           isPoolEvent: item.isPoolEvent || '',
           id_athlete_dg: item.id_athlete_dg || '',
           id_athlete_espn: item.id_athlete_espn || '',
@@ -227,16 +228,13 @@ function get_in_play(player_data_key,in_play_start_time) {
 
   if (in_play_start_time <= current_time) {
     const endpoint = `${SOURCEURL_DG}${ENDPT_PRD_IN_PLAY}?${FILEFORMAT}${API_DG}`;
-    
-    console.log(endpoint)
+      console.log(endpoint)
 
       // --- 1. Fetch Data ---
     let data;
     try {
       const response = UrlFetchApp.fetch(endpoint, { muteHttpExceptions: true });
-      if (response.getResponseCode() !== 200) {
-        throw new Error(`HTTP Error ${response.getResponseCode()}`);
-      }
+      if (response.getResponseCode() !== 200) {throw new Error(`HTTP Error ${response.getResponseCode()}`);}
       data = JSON.parse(response.getContentText());
     } catch (e) {
       console.log(`Failed to fetch DataGolf rankings: ${e.message}`);
@@ -629,4 +627,3 @@ function createFinalOutput(dataset,fieldsForLookup){
     });
   return finalDataset
 }
-
