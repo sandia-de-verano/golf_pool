@@ -4,6 +4,7 @@ function get_live_data_again() {
     const id_tournament = currentEvent.id_tournament
     const id_event = currentEvent.id_event_espn
     const year = currentEvent.year
+    const tournamentStarted = new Date() >= new Date(currentEvent.adj_start_date);
 
   const player_data_raw = global.readSheetData(SHT_PLAYERDATA);
     const tour_check = player_data_raw[0].tournamentName
@@ -65,11 +66,34 @@ if (tour_check === tour_check_live && !isPostTourney) {
 
   merged_data_live.sort((a, b) => (a.current_score || 0) - (b.current_score || 0));
 
-  const merged_data_earn = calculateGolfWinnings(merged_data_live, prizeMap)
+  const merged_data_earn = calculateGolfWinnings(merged_data_live, prizeMap,tournamentStarted)
 
   const filter_data = merged_data_earn.filter(obj => obj.make_cut > .5)
 
   const targetKey = 'current_score'
+  const data_len = merged_data_earn.filter(obj => obj.distance && obj.distance !== "")
+
+
+  //gir	prox_fw	prox_rgh	scrambling	great_shots	poor_shots
+
+  const projected_earnings = (data_len.reduce((sum, obj) => sum + (obj.projected_earnings || 0), 0)) / data_len.length;
+  const distance = (data_len.reduce((sum, obj) => sum + (obj.distance || 0), 0)) / data_len.length;
+  const accuracy = (data_len.reduce((sum, obj) => sum + (obj.accuracy || 0), 0)) / data_len.length;
+  const sg_app = (data_len.reduce((sum, obj) => sum + (obj.sg_app || 0), 0)) / data_len.length;
+  const sg_arg = (data_len.reduce((sum, obj) => sum + (obj.sg_arg || 0), 0)) / data_len.length;
+  const sg_ott = (data_len.reduce((sum, obj) => sum + (obj.sg_ott || 0), 0)) / data_len.length;
+  const sg_putt = (data_len.reduce((sum, obj) => sum + (obj.sg_putt || 0), 0)) / data_len.length;
+  const sg_t2g = (data_len.reduce((sum, obj) => sum + (obj.sg_t2g || 0), 0)) / data_len.length;
+  const sg_bs = (data_len.reduce((sum, obj) => sum + (obj.sg_bs || 0), 0)) / data_len.length;
+  const sg_total = (data_len.reduce((sum, obj) => sum + (obj.sg_total || 0), 0)) / data_len.length;
+  const gir = (data_len.reduce((sum, obj) => sum + (obj.gir || 0), 0)) / data_len.length;
+  const prox_fw = (data_len.reduce((sum, obj) => sum + (obj.prox_fw || 0), 0)) / data_len.length;
+  const prox_rgh = (data_len.reduce((sum, obj) => sum + (obj.prox_rgh || 0), 0)) / data_len.length;
+  const scrambling = (data_len.reduce((sum, obj) => sum + (obj.scrambling || 0), 0)) / data_len.length;
+  const great_shots = (data_len.reduce((sum, obj) => sum + (obj.great_shots || 0), 0)) / data_len.length;
+  const poor_shots = (data_len.reduce((sum, obj) => sum + (obj.poor_shots || 0), 0)) / data_len.length;
+
+
 
   const total = merged_data_earn.reduce((sum, obj) => sum + (obj[targetKey] || 0), 0);
   const average = total / merged_data_earn.length;
@@ -81,7 +105,8 @@ if (tour_check === tour_check_live && !isPostTourney) {
     id_athlete_dg: "x0001",	
     id_athlete_espn: "x0001",
     'fullName': "PREDICTED CUT",
-    [targetKey]: average 
+    [targetKey]: average,
+    projected_earnings: projected_earnings
   };
 
   const total_dg = filter_data.reduce((sum, obj) => sum + (obj[targetKey] || 0), 0);
@@ -95,84 +120,99 @@ if (tour_check === tour_check_live && !isPostTourney) {
     id_athlete_espn: "x0002",
     'fullName': "DATA GOLF CUT",
     'make_cut': .5,
-    [targetKey]: average_dg 
+    [targetKey]: average_dg,
+    projected_earnings: projected_earnings,
+    distance: distance,	
+    accuracy: accuracy,		
+    sg_app: sg_app,		
+    sg_arg: sg_arg,		
+    sg_ott: sg_ott,		
+    sg_putt: sg_putt,		
+    sg_t2g: sg_t2g,		
+    sg_bs: sg_bs,		
+    sg_total: sg_total,		
+    gir: gir,		
+    prox_fw: prox_fw,		
+    prox_rgh: prox_rgh,		
+    scrambling: scrambling,		
+    great_shots: great_shots,
+    poor_shots: poor_shots	 
   };
 
   // 4. Push the new object into the array
   merged_data_earn.push(averageRow,averageRow_dg);
 
-const fieldsForLookup = [
-      'id_tournament',
-      'id_event',
-      'id_event_dg',
-      'year',
-      'isPoolEvent',
-      'id_athlete_dg',
-      'id_athlete_espn',
-      'fullName',
-      'isAmateur',
-      'adjusted_rank',
-      'current_round',
-      'current_position',
-      'current_score',
-      'thru',
-      'today',
-      'r1_score',
-      'r2_score',
-      'r3_score',
-      'r4_score',
-      'r1_teetime',
-      'r2_teetime',
-      'r3_teetime',
-      'r4_teetime',
-      'total_points',
-      'gained_points',
-      'lost_points',
-      'average_points',
-      'total_events',
-      'make_cut',
-      'top_20',
-      'top_10',
-      'top_5',
-      'win',
-      'players_final_pred',
-      'predicted_round_score',
-      'earnings',
-      'projected_earnings',
-      'distance',
-      'accuracy',
-      'sg_app',
-      'sg_arg',
-      'sg_ott',
-      'sg_putt',
-      'sg_t2g',
-      'sg_bs',
-      'sg_total',
-      'gir',
-      'prox_fw', 
-      'prox_rgh',
-      'scrambling',
-      'great_shots',
-      'poor_shots',
-      'playerSelection_name'
-  ];
+  let final_dataset = []; 
 
-  const finalDataset = createFinalOutput(merged_data_earn,fieldsForLookup)
+  merged_data_earn.forEach((item) => {
+        final_dataset.push({
+          id_tournament: item.id_tournament || '',
+          id_event: id_event || '',
+          id_event_dg: item.id_event_dg || '',
+          year: item.year || '',
+          isPoolEvent: item.isPoolEvent || '',
+          id_athlete_dg: item.id_athlete_dg || '',
+          id_athlete_espn: item.id_athlete_espn || '',
+          fullName: item.fullName || '',
+          isAmateur: item.isAmateur || '',
+          adjusted_rank: item.adjusted_rank || 550,
+          current_round: item.current_round || '',
+          current_position: (item.current_position === '' || item.current_position == null && item.fullName != "DATA GOLF CUT" && item.fullName != "PREDICTED CUT") 
+            ? (tournamentStarted ? "WD" : item.adjusted_rank) 
+            : item.current_position,
+          current_score: item.current_score || 0,
+          thru: item.thru || '',
+          today: item.today || '',
+          r1_score: item.r1_score || '',
+          r2_score: item.r2_score || '',
+          r3_score: item.r3_score || '',
+          r4_score: item.r4_score || '',
+          r1_teetime: item.r1_teetime || '',
+          r2_teetime: item.r2_teetime || '',
+          r3_teetime: item.r3_teetime || '',
+          r4_teetime: item.r4_teetime || '',
+          total_points: item.total_points || '',
+          gained_points: item.gained_points || '',
+          lost_points: item.lost_points || '',
+          average_points: item.average_points || '',
+          total_events: item.total_events || '',
+          make_cut: item.make_cut || '',
+          top_20: item.top_20 || '',
+          top_10: item.top_10 || '',
+          top_5: item.top_5 || '',
+          win: item.win || '',
+          players_final_pred: item.players_final_pred || '',
+          predicted_round_score: item.predicted_round_score || '',
+          earnings: item.earnings || '',
+          projected_earnings: item.projected_earnings || '',
+          distance: item.distance || '',
+          accuracy: item.accuracy || '',
+          sg_app: item.sg_app || '',
+          sg_arg: item.sg_arg || '',
+          sg_ott: item.sg_ott || '',
+          sg_putt: item.sg_putt || '',
+          sg_t2g: item.sg_t2g || '',
+          sg_bs: item.sg_bs || '',
+          sg_total: item.sg_total || '',
+          gir: item.gir || '',
+          prox_fw: item.prox_fw || '',
+          prox_rgh: item.prox_rgh || '',
+          scrambling: item.scrambling || '',
+          great_shots: item.great_shots || '',
+          poor_shots: item.poor_shots || '',
+          playerSelection_name: item.playerSelection_name || '',
+          last_data_pull: item.last_data_pull || new Date().getTime()
+        })
+      });
 
-  const finalDataset_time_stamp = finalDataset.map(item => ({
-    ...item, // This "spreads" the existing keys (name, earnings, etc.)
-    last_data_pull: new Date().getTime() // Adds the new one
-  }));
-
-    finalDataset_time_stamp.sort((a, b) => a.adjusted_rank - b.adjusted_rank);
-    finalDataset_time_stamp.sort((a, b) => a.current_score - b.current_score);
-
+    final_dataset.sort((a, b) => a.adjusted_rank - b.adjusted_rank);
+    final_dataset.sort((a, b) => a.current_score - b.current_score);
 
   SHT_PLAYERLIVE.clearContents();
-  global.setValues_keys(finalDataset_time_stamp, SHT_PLAYERLIVE);
+  global.setValues_keys(final_dataset, SHT_PLAYERLIVE);
 
   // Pass the data we just built directly to the next function
-  update_pool_leaderboard(currentEvent, finalDataset_time_stamp);
+  update_pool_leaderboard(currentEvent, final_dataset);
 
 }
 
@@ -219,7 +259,7 @@ function get_in_play(player_data_key,in_play_start_time) {
         player.R3 ?? '',
         player.R4 ?? '',
         player.current_pos ?? '',
-        player.current_score ?? '',
+        player.current_score ?? 0,
         player.end_hole ?? '',
         player.make_cut ?? '',
         player.thru ?? '',
@@ -501,7 +541,7 @@ function merge_live_data_espn_id(array1, array2) {
 
 
 // ----------------------------------------------------------------------------------
-function calculateGolfWinnings(players,prizeMap) {
+function calculateGolfWinnings(players,prizeMap,tournamentStarted) {
 
   const existingRanks = players
     .map(p => parseInt((p.adjusted_rank || "").toString().replace(/[^0-9]/g, "")))
@@ -518,13 +558,14 @@ function calculateGolfWinnings(players,prizeMap) {
 
   // 2. Update players to use Adjusted Rank if original is blank
   players.forEach(player => {
-    const rawRank = parseInt((player.current_position || "").toString().replace(/[^0-9]/g, ""));
+    const rawRank = parseInt((player.current_position || '').toString().replace(/[^0-9]/g, ""));
     const uncut_rank = player.current_position
 
     if (uncut_rank === "CUT" || uncut_rank === "WD" || uncut_rank === "DQ") {
       player.effective_rank = 0;
-    } else if (isNaN(rawRank) || rawRank === undefined || rawRank === null || rawRank === '') {
-      player.effective_rank = rankMap[player.adjusted_rank] || null;
+    } else if (isNaN(rawRank) || rawRank === undefined || rawRank === null || rawRank === '' ) {         
+      player.effective_rank = tournamentStarted ? 0 : rankMap[player.adjusted_rank]
+      //player.effective_rank = rankMap[player.adjusted_rank] || 0;
     } else {
       player.effective_rank = rawRank;
     }
