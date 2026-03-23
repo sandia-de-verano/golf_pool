@@ -1,5 +1,5 @@
 function open_weather() {
-  const apiKey = ''
+  const apiKey = API_OPEN_WEATHER
 
   const currentEvent = getCurrentEvent(SHT_LOOKUPTOURNAMENT);
       if (!currentEvent) return;
