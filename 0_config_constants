@@ -1,34 +1,38 @@
 // --- CONFIGURATION CONSTANTS ---
-  const scriptProperties = PropertiesService.getScriptProperties();
+  const allProps = PropertiesService.getScriptProperties().getProperties();
   const cache = CacheService.getScriptCache();
 
 // --- SpreadSheets ---
   // --- Define Sheets ---
-  const SSDATAID = scriptProperties.getProperty('ssDataId');
-  const SSDATAID_ATHLETE = scriptProperties.getProperty('ssDataId_athlete');
+  const SSDATAID = allProps['ssDataId'];
+  const SSDATAID_ATHLETE = allProps['ssDataId_athlete'];
+  const SSDATAID_HIST = allProps['ssDataId_hist'];
+
   //const SSDATAID_BETTING = scriptProperties.getProperty('ssDataId_betting');
-  const SSDATAID_HIST = scriptProperties.getProperty('ssDataId_hist');
   //const SSDATAID_EARN = scriptProperties.getProperty('ssDataId_earn');
   //const SSDATAID_POOL = scriptProperties.getProperty('ssDataId_pool');
 
   // --- define ss ---
   const SS_PRIMARY =  SpreadsheetApp.openById(SSDATAID);
   const SS_ATHLETE =  SpreadsheetApp.openById(SSDATAID_ATHLETE);
-  //const SS_BETTING =  SpreadsheetApp.openById(SSDATAID_BETTING);
+
   const SS_HIST =  SpreadsheetApp.openById(SSDATAID_HIST);
+  //const SS_BETTING =  SpreadsheetApp.openById(SSDATAID_BETTING);
   //const SS_EARNINGS =  SpreadsheetApp.openById(SSDATAID_EARN);
   //const SS_POOL =  SpreadsheetApp.openById(SSDATAID_POOL);
 
-// --- URLS ---
-  const SOURCEURL_ESPN = scriptProperties.getProperty('sourceURL_espn');
-  const SOURCEURL_DG = scriptProperties.getProperty('sourceURL_dg');
-  const API_DG = scriptProperties.getProperty('api_dg');
-  const FILEFORMAT = scriptProperties.getProperty('fileFormat');
-  const URLSEG_SPORTS = scriptProperties.getProperty('urlSeg_sports');
-  const URLSEG_LEAGUES = scriptProperties.getProperty('urlSeg_leagues');
-  const URLSEG_PAGE = scriptProperties.getProperty('urlSeg_page');
-  const URLSEG_REGION = scriptProperties.getProperty('urlSeg_region');
-  const SPORT = scriptProperties.getProperty('sport');
+// --- URLS & DATA SEGMENTS ---
+
+const SOURCEURL_ESPN = allProps['sourceURL_espn'];
+const SOURCEURL_DG = allProps['sourceURL_dg'];
+const API_DG = allProps['api_dg'];
+const API_OPEN_WEATHER = allProps['api_open_weather'];
+const FILEFORMAT = allProps['fileFormat'];
+const URLSEG_SPORTS = allProps['urlSeg_sports'];
+const URLSEG_LEAGUES = allProps['urlSeg_leagues'];
+const URLSEG_PAGE = allProps['urlSeg_page'];
+const URLSEG_REGION = allProps['urlSeg_region'];
+const SPORT = allProps['sport'];
 
 // --- Other Info ---
   const TODAY = new Date();
@@ -139,13 +143,13 @@
   const SHT_USER_RESULTS = global.setupSheet(SS_PRIMARY, 'user_detailed_results');
   const SHT_COURSE_INFO = global.setupSheet(SS_PRIMARY, 'course_information');
   const SHT_OVERALL_RESULTS = global.setupSheet(SS_PRIMARY, 'hist_overallResults');
-  const SHT_WEATHER_FORECAST = global.setupSheet(SS_PRIMARY, 'weather_forecast');
-  const SHT_WEATHER_CURRENT = global.setupSheet(SS_PRIMARY, 'weather_current');
+  const SHT_USERS = global.setupSheet(SS_PRIMARY, 'users');
 
+  const SHT_WEATHER_FORECAST_v2 = global.setupSheet(SS_PRIMARY, 'weather_forecast_v2');
+  const SHT_WEATHER_CURRENT_v2 = global.setupSheet(SS_PRIMARY, 'weather_current_v2');
+  const SHT_COURSE_WEATHER = global.setupSheet(SS_PRIMARY, 'course_weather');
   const SHT_PLAYER_STATS = global.setupSheet(SS_PRIMARY, 'player_stats');
-
   const SHT_TEST = global.setupSheet(SS_PRIMARY, 'test_sheet');
-  const SHT_TEST_2 = global.setupSheet(SS_PRIMARY, 'test_sheet_2');
 
   // ESPN Historical data in SS_HIST
 
