@@ -1,185 +1,115 @@
 function create_lookup_table() {
   const calendar_raw = global.readSheetData(SHT_CALENDAR);
-
-  const live_raw = SHT_PLAYERLIVE.getDataRange().getValues();
-    const live_values = live_raw.slice(1);
-    const live_headers = live_raw[0];
-
-  const live_player_data = add_keys(live_values,live_headers)
-
-  const all_times = []
-  const update_times = []
-
-  for (const row of live_player_data) {
-    all_times.push(
-      row.r1_teetime,
-      row.r2_teetime,
-      row.r3_teetime,
-      row.r4_teetime,
-    )
-  }
-
-  for (const row of live_player_data) {
-    update_times.push(
-      row.r3_teetime,
-      row.r4_teetime
-    )
-  }
-
-  const tee_times_flat = all_times
-    .filter(val => val && val !== "")
-    .map(val => new Date(val).getTime());
-
-  const tee_times_flat_update = update_times
-    .filter(val => val && val !== "")
-    .map(val => new Date(val).getTime());
-
-  const early_min = Math.min(...tee_times_flat);
-  const late_max = Math.max(...tee_times_flat);
-  const update_min = Math.min(...tee_times_flat_update);
-
-  const calendar_filter = calendar_raw.filter(obj => obj.startDate_mt && obj.endDate_mt && obj.endDate_mt >= TODAY && obj.league === 'pga');
-
-  calendar_filter.sort((a, b) => a.startDate_mt - b.startDate_mt);
-
-const lookup_array = []
-
-let i = 0
-
-for (const event of calendar_filter) {
-  let update_date = new Date(event.startDate_mt);
-  update_date.setDate(update_date.getDate()+2);
-  //update_date.setHours(0,0,0,0)
-
-  let start_date = new Date(event.startDate_mt);
-  //start_date.setHours(0,0,0,0)
-  let end_date = new Date(event.endDate_mt);
-  end_date.setDate(end_date.getDate() + 1);
-  //end_date.setHours(0,0,0,0)
-
-  const start_time = new Date(early_min)
-  //start_time.setHours(0,0,0,0)
-  const end_time = new Date(late_max)
-  //end_time.setHours(0,0,0,0)
-  const update_time = new Date(update_min)
-  //update_time.setHours(0,0,0,0)
-
-  //console.log(update_time)
-  //console.log(update_date)
-
-  let adj_start_date;
-
-  if (start_time > start_date) {
-        adj_start_date = start_time;
-      } else {
-        adj_start_date = start_date;
-      }
-
-  // - Adjusted End Date
-  let adj_end_date;
-
-    if (end_time > end_date) {
-        adj_end_date = end_time;
-      } else {
-        adj_end_date = end_date;
-      }
-
-  let adj_update_date
-  if (update_time > update_date) {
-    adj_update_date = update_time;
-  } else {
-    adj_update_date = update_date;
-  }
-  let end_date_final = new Date(adj_end_date);
-  end_date_final.setDate(end_date_final.getDate() + 1);
-
-  let pool_opens = new Date(adj_start_date);
-  pool_opens.setDate(pool_opens.getDate() - 3);
-  //pool_opens.setHours(0,0,0,0)
+  const live_player_data = global.readSheetData(SHT_PLAYERLIVE);
   
+  const NOW = new Date();
+  // Set boundary for "this weekend" (Sunday at 11:59 PM)
+  const endOfWeek = new Date(NOW);
+  endOfWeek.setDate(NOW.getDate() + (7 - NOW.getDay()));
+  endOfWeek.setHours(23, 59, 59, 999);
+
+  // 1. Prepare Tee Time Data
+  const all_times = [];
+  for (const row of live_player_data) {
+    all_times.push(row.r1_teetime, row.r2_teetime, row.r3_teetime, row.r4_teetime);
+  }
+  const tee_times_flat = all_times.filter(val => val && val !== "").map(val => new Date(val).getTime());
+  const hasTeeTimes = tee_times_flat.length > 0;
+  const early_min = hasTeeTimes ? Math.min(...tee_times_flat) : null;
+  const late_max = hasTeeTimes ? Math.max(...tee_times_flat) : null;
+
+  // 2. Filter & Sort Calendar
+  const calendar_filter = calendar_raw
+    .filter(obj => obj.startDate_mt && obj.endDate_mt && (new Date(obj.endDate_mt).getTime() + 86400000) >= NOW.getTime() && obj.league === 'PGA')
+    .sort((a, b) => new Date(a.startDate_mt) - new Date(b.startDate_mt));
+
+  const lookup_array = [];
+  let foundNextPoolEvent = false;
+  const seenStartDates = []; // Track dates to identify "opp pga"
+
+  for (let idx = 0; idx < calendar_filter.length; idx++) {
+    const event = calendar_filter[idx];
+    const eventStart = new Date(event.startDate_mt);
+    const dateString = eventStart.toDateString();
     
-  let picks_due_note = new Date(adj_start_date);
-  picks_due_note.setDate(picks_due_note.getDate() - 1);
-  picks_due_note.setHours(0,0,0,0)
+    let tourItem = "upcoming";
+    const isCurrentWeekend = (eventStart <= endOfWeek);
 
-  let picks_due = new Date(adj_start_date);
-  //picks_due.setHours(0,0,0,0)
+    // --- UPDATED LABELING LOGIC ---
+    if (isCurrentWeekend) {
+      if (seenStartDates.includes(dateString)) {
+        // If we've already seen an event starting on this day, this one is "opp pga"
+        tourItem = "opp pga";
+      } else {
+        // First event found for this date is "current"
+        tourItem = "current";
+        seenStartDates.push(dateString);
+      }
+    } else if (event.isPoolEvent && !foundNextPoolEvent) {
+      // First pool event after the current weekend
+      tourItem = "next";
+      foundNextPoolEvent = true;
+    }
 
-  let updates_due_note = new Date(adj_update_date);
-  updates_due_note.setDate(updates_due_note.getDate() - 1);
-  updates_due_note.setHours(0,0,0,0)
+    // --- Date Calculation Logic ---
+    let start_date = new Date(event.startDate_mt);
+    let end_date = new Date(event.endDate_mt);
+    end_date.setHours(23, 59, 59, 999);
 
-  let updates_due = new Date(adj_update_date);
-  //updates_due.setHours(0,0,0,0)
+    let adj_start_date, adj_end_date;
 
-  let results_note = new Date(adj_end_date);
-  results_note.setTime(results_note.getTime() + 2)
-  //results_note.setHours(0,0,0,0)
+    // Apply live tee times to any event happening this weekend
+    if (isCurrentWeekend && hasTeeTimes) {
+      const start_time = new Date(early_min);
+      const end_time = new Date(late_max);
+      adj_start_date = start_time > start_date ? start_time : start_date;
+      adj_end_date = end_time > end_date ? end_time : end_date;
+    } else {
+      adj_start_date = start_date;
+      adj_end_date = end_date;
+    }
 
-  let tourItem
-  if (i === 0){
-    tourItem = "current";
-    i = i+1;
-  } else if (i === 1) {
-    tourItem = "next";
-    i = i+1;
-  } else {
-    tourItem = "upcoming";
+    // --- Derived Date Fields ---
+    let update_date = new Date(event.startDate_mt);
+    update_date.setDate(update_date.getDate() + 2);
+    let adj_update_date = update_date; 
+
+    let end_date_final = new Date(adj_end_date);
+    end_date_final.setDate(end_date_final.getDate() + 1);
+
+    let pool_opens = new Date(adj_start_date);
+    pool_opens.setDate(pool_opens.getDate() - 3);
+
+    let picks_due = new Date(adj_start_date);
+    let picks_due_note = new Date(adj_start_date);
+    picks_due_note.setDate(picks_due_note.getDate() - 1);
+    picks_due_note.setHours(0,0,0,0);
+
+    let updates_due = new Date(adj_update_date);
+    let updates_due_note = new Date(adj_update_date);
+    updates_due_note.setDate(updates_due_note.getDate() - 1);
+    updates_due_note.setHours(0,0,0,0);
+
+    let results_note = new Date(adj_end_date);
+    results_note.setTime(results_note.getTime());
+
+    lookup_array.push([
+      tourItem, event.id_tournament, event.id_event_espn, event.tournamentName,
+      event.league, event.year, event.startDate_mt, event.endDate_mt, event.purse,
+      event.eventStatus, adj_start_date, adj_update_date, adj_end_date, pool_opens,
+      picks_due_note, picks_due, updates_due_note, updates_due, results_note,
+      event.url_event, event.isPoolEvent, end_date_final
+    ]);
   }
 
-  lookup_array.push([
-    tourItem,
-    event.id_tournament,
-    event.id_event_espn,
-    event.tournamentName,
-    event.league,
-    event.year,
-    event.startDate_mt,
-    event.endDate_mt,
-    event.purse,
-    event.eventStatus,
-    adj_start_date,
-    adj_update_date,
-    adj_end_date,
-    pool_opens,
-    picks_due_note,
-    picks_due,
-    updates_due_note,
-    updates_due,
-    results_note,
-    event.url_event,
-    event.isPoolEvent, // NEW: Add the pool flag here
-    end_date_final
-  ]);
+  const headers = [
+    'tourItem', 'id_tournament', 'id_event_espn', 'tournamentName', 'league', 'year',
+    'startDate', 'endDate', 'purse', 'eventStatus', 'adj_start_date', 'adj_update_date',
+    'adj_end_date', 'pool_opens_date', 'picks_due_note_date', 'picks_due_date',
+    'updates_due_note_date', 'updates_due_date', 'results_note_date', 'url_event',
+    'isPoolEvent', 'end_date_final'
+  ];
 
-  }
-
- headers = [
-    'tourItem',
-    'id_tournament',
-    'id_event_espn',
-    'tournamentName',
-    'league',
-    'year',
-    'startDate',
-    'endDate',
-    'purse',
-    'eventStatus',
-    'adj_start_date',
-    'adj_update_date',
-    'adj_end_date',
-    'pool_opens_date',
-    'picks_due_note_date',
-    'picks_due_date',
-    'updates_due_note_date',
-    'updates_due_date',
-    'results_note_date',
-  'url_event',
-  'isPoolEvent',
-  'end_date_final'
- ]
-
-  SHT_LOOKUPTOURNAMENT.clearContents()
-  global.setValues(lookup_array,SHT_LOOKUPTOURNAMENT,headers)
-
+  SHT_LOOKUPTOURNAMENT.clearContents();
+  global.setValues(lookup_array, SHT_LOOKUPTOURNAMENT, headers);
 }
