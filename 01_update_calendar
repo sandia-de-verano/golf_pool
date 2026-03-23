@@ -22,8 +22,6 @@ function update_events_calendar() {
   const dg_calendar_raw = fetch_url(dg_endpoint)
   const dg_calendar = dg_calendar_raw.schedule
 
-  console.log(dg_calendar.length)
-
   const espn_calendar_raw = fetch_url(endpoint)
     const cal_sections = espn_calendar_raw.sections
     const cal_data = []
@@ -174,10 +172,14 @@ const getDayDiff = (d1, d2) => {
   // 4. Add Data Golf items that never found an ESPN partner
   dgArray.forEach((dgItem, index) => {
     if (!matchedDgIndices.has(index)) {
+
       finalResults.push({
         ...DEFAULTS,
         ...dgItem,
         event_name: dgItem.event_name || DEFAULTS.event_name,
+        id_tournament: YEAR,
+        id_event_espn: dgItem.event_id || DEFAULTS.id_event_espn,
+        eventStatus: dgItem.status || DEFAULTS.eventStatus,
       });
     }
   });
