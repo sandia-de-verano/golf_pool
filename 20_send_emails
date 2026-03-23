@@ -1,0 +1,339 @@
+function email_pool_open() {
+  const currentEvent = getCurrentEvent(SHT_LOOKUPTOURNAMENT);
+
+// --- Validation ---
+    if (!currentEvent) return;
+    if (!currentEvent.isPoolEvent) {console.log('Not Pool Event'); return};
+
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    const lookup_date = new Date(currentEvent.pool_opens_date);
+    lookup_date.setHours(0, 0, 0, 0);
+
+    const isToday = today.getTime() === lookup_date.getTime();
+
+  if (!isToday) {
+    console.log("The deadline is not today. Skipping.");
+    return; // Exit early if not today
+  }
+  console.log("The deadline is today! Sending emails...");
+
+// --- get data ---
+
+  const curr_event_name = currentEvent.tournamentName;
+  const due_date = currentEvent.picks_due_date;
+  const users = global.readSheetData(SHT_USERS)
+    if (!users || users.length === 0) return;
+    const columnHeaders = Object.keys(users[0]);
+    const dateKey = 'pool_open_date_sent'; // <--- Ensure this matches your Sheet Header exactly
+    const dateColIndex = columnHeaders.indexOf(dateKey) + 1;
+      if (dateColIndex === 0) {
+        console.log(`Warning: Column "${dateKey}" not found in SHT_USERS. Dates will not be recorded.`);
+      }
+
+  const subject = `⛳ Make Selections: ${curr_event_name} - Pool Open`;
+
+  users.forEach(row => {
+    let email = row.user_email.toString().toLowerCase().trim();
+    let is_active = row.is_active;
+    const alreadySentToday = row[dateKey] && new Date(row[dateKey]).toDateString() === new Date().toDateString();
+
+    if (email && is_active && !alreadySentToday) {
+
+      const htmlBody = `
+        <p>Hello, amazing humans!</p> 
+        <p>It's your friendly digital caddie, Hogan G. Wooodland! I'm here with a tee-rific reminder! 🏌️‍♂️</p>
+        <p>Selections for ⛳ ${curr_event_name} are OPEN!</p>
+        <p>Make your selections here: <a href='https://www.appsheet.com/start/730ac965-db6f-4e24-bed6-2d926750dee6'>Fairway Pool</a></p>
+        <p>🌟 Deadline for updates is <b>${due_date}</b> 🌟</p>
+        <br>
+        <p>Sincerely,</p>
+        <p><b>Team Fairway Pool</b><br>
+        <font face="arial, sans-serif" size="2">General ne'er do wells, Attempted cat herders, and Agents of Chaos</font></p>
+      `;
+    
+     MailApp.sendEmail({
+        to: email,
+        subject: subject,
+        htmlBody: htmlBody
+      });
+        
+        if (dateColIndex > 0) {
+          SHT_USERS.getRange(index + 2, dateColIndex).setValue(new Date());
+        }
+        Logger.log("Reminder sent to: " + email);
+
+      } else {
+        //Logger.log("No reminder needed for: " + email);
+      }
+    });
+
+}
+
+// -------------------------------------------------------------------------
+
+function email_pool_selection_reminder() {
+  const currentEvent = getCurrentEvent(SHT_LOOKUPTOURNAMENT);
+
+// --- Validation ---
+    if (!currentEvent) return;
+    if (!currentEvent.isPoolEvent) {console.log('Not Pool Event'); return};
+
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    const lookup_date = new Date(currentEvent.picks_due_note_date);
+    lookup_date.setHours(0, 0, 0, 0);
+
+    const isToday = today.getTime() === lookup_date.getTime();
+
+  if (!isToday) {
+    console.log("The deadline is not today. Skipping.");
+    return; // Exit early if not today
+  }
+  console.log("The deadline is today! Sending emails...");
+
+// --- get data ---
+
+  const id_event = currentEvent.id_event_espn;
+  const curr_event_name = currentEvent.tournamentName;
+  const due_date = currentEvent.picks_due_date;
+  const users = global.readSheetData(SHT_USERS)
+    if (!users || users.length === 0) return;
+    const columnHeaders = Object.keys(users[0]);
+    const dateKey = 'pool_open_date_sent'; // <--- Ensure this matches your Sheet Header exactly
+    const dateColIndex = columnHeaders.indexOf(dateKey) + 1;
+      if (dateColIndex === 0) {
+        console.log(`Warning: Column "${dateKey}" not found in SHT_USERS. Dates will not be recorded.`);
+      }
+  const user_selections = global.readSheetData(SHT_UPDATE_USERSELECTIONS)
+  const users_that_submitted_curr_event = user_selections
+    .filter(item => String(item.id_event) === String(id_event))
+    .map(item => item.user_email.toString().toLowerCase().trim()); // Extract the email strings
+
+  const subject = `⛳ Reminder: ${curr_event_name} - Make Selections`;
+
+  users.forEach(row => {
+    const email = row.user_email.toString().toLowerCase().trim();
+    const is_active = row.is_active;
+    const alreadySentToday = row[dateKey] && new Date(row[dateKey]).toDateString() === new Date().toDateString();
+    const hasSubmitted = users_that_submitted_curr_event.includes(email);
+
+    if (email && is_active && !alreadySentToday && !hasSubmitted) {
+
+      const htmlBody = `
+        <p>🌟 Deadline for updates is <b>${due_date}</b> 🌟</p>
+        <p>Make your selections here: <a href='https://www.appsheet.com/start/730ac965-db6f-4e24-bed6-2d926750dee6'>Fairway Pool</a></p>
+        <br>
+        <p>Sincerely,</p>
+        <p><b>Team Fairway Pool</b><br>
+        <font face="arial, sans-serif" size="2">General ne'er do wells, Attempted cat herders, and Agents of Chaos</font></p>
+      `;
+    
+      MailApp.sendEmail({
+        to: email,
+        subject: subject,
+        htmlBody: htmlBody
+      });
+        
+        if (dateColIndex > 0) {
+          SHT_USERS.getRange(index + 2, dateColIndex).setValue(new Date());
+        }
+        Logger.log("Reminder sent to: " + email);
+      } else {
+        Logger.log("No reminder needed for: " + email);
+      }
+    });
+}
+
+// -------------------------------------------------------------------------
+
+function email_pool_update_reminder() {
+  const currentEvent = getCurrentEvent(SHT_LOOKUPTOURNAMENT);
+
+// --- Validation ---
+    if (!currentEvent) return;
+    if (!currentEvent.isPoolEvent) {console.log('Not Pool Event'); return};
+
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    const lookup_date = new Date(currentEvent.updates_due_note_date);
+    lookup_date.setHours(0, 0, 0, 0);
+
+    const isToday = today.getTime() === lookup_date.getTime();
+
+  if (!isToday) {
+    console.log("The deadline is not today. Skipping.");
+    return; // Exit early if not today
+  }
+  console.log("The deadline is today! Sending emails...");
+  
+// --- get data ---
+
+  const id_event = currentEvent.id_event_espn;
+  const curr_event_name = currentEvent.tournamentName;
+  const updates_due_date = currentEvent.updates_due_date;
+    const users = global.readSheetData(SHT_USERS)
+    if (!users || users.length === 0) return;
+    const columnHeaders = Object.keys(users[0]);
+    const dateKey = 'pool_open_date_sent'; // <--- Ensure this matches your Sheet Header exactly
+    const dateColIndex = columnHeaders.indexOf(dateKey) + 1;
+      if (dateColIndex === 0) {
+        console.log(`Warning: Column "${dateKey}" not found in SHT_USERS. Dates will not be recorded.`);
+      }
+  const user_selections = global.readSheetData(SHT_UPDATE_USERSELECTIONS)
+    .flat()
+    .map(user_email => user_email.toString().toLowerCase());
+  const filt_user_selections = user_selections.filter(item => 
+      String(item.id_event) === String(id_event)
+    );
+    if (user_selections.length === 0) {
+    console.log("No user selections found for Event ID: " + id_event + ". Exiting.");
+    return;
+  }
+
+  const subject = `⛳ Reminder: ${curr_event_name} - Make Your Updates`;
+
+  users.forEach(row => {
+    const email = row.user_email;
+    const is_active = row.is_active;
+    const alreadySentToday = row[dateKey] && new Date(row[dateKey]).toDateString() === new Date().toDateString();
+
+  if (email && is_active && !alreadySentToday && !user_selections.includes(email)) {
+
+      const htmlBody = `
+        <p>🌟 Deadline for updates is <b>${updates_due_date}</b> 🌟</p>
+        <p>Make your updates here: <a href='https://www.appsheet.com/start/730ac965-db6f-4e24-bed6-2d926750dee6'>Fairway Pool</a></p>
+        <br>
+        <p>Sincerely,</p>
+        <p><b>Team Fairway Pool</b><br>
+        <font face="arial, sans-serif" size="2">General ne'er do wells, Attempted cat herders, and Agents of Chaos</font></p>
+      `;
+    
+      MailApp.sendEmail({
+        to: email,
+        subject: subject,
+        htmlBody: htmlBody
+      });
+        
+        if (dateColIndex > 0) {
+          SHT_USERS.getRange(index + 2, dateColIndex).setValue(new Date());
+        }
+        Logger.log("Reminder sent to: " + email);
+      } else {
+        Logger.log("No reminder needed for: " + email);
+      }
+    });
+
+}
+
+// -------------------------------------------------------------------------
+
+function email_pool_results() {
+  const currentEvent = getCurrentEvent(SHT_LOOKUPTOURNAMENT);
+
+// --- Validation ---
+    if (!currentEvent) return;
+    if (!currentEvent.isPoolEvent) {console.log('Not Pool Event'); return};
+
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    const lookup_date = new Date(currentEvent.results_note_date);
+    lookup_date.setHours(0, 0, 0, 0);
+
+    const isToday = today.getTime() === lookup_date.getTime();
+
+  if (!isToday) {
+    console.log("The deadline is not today. Skipping.");
+    return; // Exit early if not today
+  }
+  console.log("The deadline is today! Sending emails...");
+  
+
+// --- get data ---
+  const nextEvent = getNextEvent(SHT_LOOKUPTOURNAMENT);
+  const id_event = currentEvent.id_event_espn
+  const curr_event_name = currentEvent.tournamentName;
+  
+  const next_event_name = nextEvent.tournamentName;
+  const next_event_start_date = nextEvent.startDate;
+  const next_event_end_date = nextEvent.endDate;
+
+  const leaderboard = global.readSheetData(SHT_VIEW_LEADERBOARD)
+    const users = global.readSheetData(SHT_USERS)
+    if (!users || users.length === 0) return;
+      const columnHeaders = Object.keys(users[0]);
+      const dateKey = 'pool_open_date_sent'; // <--- Ensure this matches your Sheet Header exactly
+      const dateColIndex = columnHeaders.indexOf(dateKey) + 1;
+        if (dateColIndex === 0) {
+          console.log(`Warning: Column "${dateKey}" not found in SHT_USERS. Dates will not be recorded.`);
+        }
+
+  // 2. Build the Leaderboard HTML Table Rows
+  let tableRows = "";
+  // Start from i=1 to skip headers
+  for (let i = 1; i < leaderboard.length; i++) {
+    let rank = leaderboard[i][0]; // Adjust column index as needed
+    let name = leaderboard[i][1];
+    let winnings = leaderboard[i][2];
+
+    tableRows += `
+      <tr>
+        <td style="border: 1px solid #ccc; padding: 10px;">${rank}</td>
+        <td style="border: 1px solid #ccc; padding: 10px;">${name}</td>
+        <td style="border: 1px solid #ccc; padding: 10px; text-align: right;">${winnings}</td>
+      </tr>`;
+  }
+
+  const subject = `⛳ ${curr_event_name} - Results`;
+  const htmlBody = `
+    <p>Hello! It's your friendly digital caddie, Hogan G. Wooodland!</p>
+    <p>The tournament has concluded, and here are the final results:</p>
+    
+    <table style="border-collapse: collapse; width: 80%;">
+      <thead>
+        <tr>
+          <th style="border: 1px solid #333; padding: 10px; background-color: #f0f0f0; text-align: left;">Rank</th>
+          <th style="border: 1px solid #333; padding: 10px; background-color: #f0f0f0; text-align: left;">Name</th>
+          <th style="border: 1px solid #333; padding: 10px; background-color: #f0f0f0; text-align: right;">Total Winnings</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${tableRows}
+      </tbody>
+    </table>
+    
+    <p><b>Next Tournament: ${next_event_name}</b><br>
+    Dates: ${Utilities.formatDate(new Date(next_event_start_date), "GMT", "MM/dd/yyyy")} - ${Utilities.formatDate(new Date(next_event_end_date), "GMT", "MM/dd/yyyy")}</p>
+    
+    <p>Sincerely,</p>
+    <p><b>Team Fairway Pool</b><br>
+    <span style="font-family: arial, sans-serif; font-size: small;">General ne'er do wells, Attempted cat herders, and Agents of Chaos</span></p>
+  `;
+
+  users.forEach(row => {
+    let user_email = row.user_email
+    let is_active = row.is_active;
+    const alreadySentToday = row[dateKey] && new Date(row[dateKey]).toDateString() === new Date().toDateString(); 
+
+    // Only send if the email exists AND status is 'active' or 'true'
+    if (user_email && is_active && !alreadySentToday) {
+      MailApp.sendEmail({
+        to: email,
+        subject: subject,
+        htmlBody: htmlBody
+      });
+      
+      if (dateColIndex > 0) {
+          SHT_USERS.getRange(index + 2, dateColIndex).setValue(new Date());
+      }
+      Logger.log("Sent to: " + email);
+
+    } else {
+      Logger.log("Skipped: " + email + " (Status: " + status + ")");
+    }
+  });
+}
