@@ -57,8 +57,6 @@ if (status !== 'STATUS_FINAL' && status !== 'STATUS_IN_PROGRESS') {
 
 
   const finalDataset = merge_live_data_espn_id(player_live_raw,ath_info_keys)
-    //merge_live_data_espn_id(player_live_raw,ath_info_keys
-
 
   const finalDataset_time_stamp = finalDataset.map(item => ({
     ...item, 
@@ -68,12 +66,72 @@ if (status !== 'STATUS_FINAL' && status !== 'STATUS_IN_PROGRESS') {
     finalDataset_time_stamp.sort((a, b) => a.adjusted_rank - b.adjusted_rank);
     finalDataset_time_stamp.sort((a, b) => a.current_score - b.current_score);
 
+  const final_dataset = [];
+  finalDataset_time_stamp.forEach((item) => {
+        final_dataset.push({
+          id_tournament: item.id_tournament || '',
+          id_event: item.id_event || '',
+          id_event_dg: item.id_event_dg || '',
+          year: item.year || '',
+          isPoolEvent: item.isPoolEvent || '',
+          id_athlete_dg: item.id_athlete_dg || '',
+          id_athlete_espn: item.id_athlete_espn || '',
+          fullName: item.fullName || '',
+          isAmateur: item.isAmateur || '',
+          adjusted_rank: item.adjusted_rank || '',
+          current_round: item.current_round || '',
+          current_position: item.current_position || '',
+          current_score: item.current_score || '',
+          thru: item.thru || '',
+          today: item.today || '',
+          r1_score: item.r1_score || '',
+          r2_score: item.r2_score || '',
+          r3_score: item.r3_score || '',
+          r4_score: item.r4_score || '',
+          r1_teetime: item.r1_teetime || '',
+          r2_teetime: item.r2_teetime || '',
+          r3_teetime: item.r3_teetime || '',
+          r4_teetime: item.r4_teetime || '',
+          total_points: item.total_points || '',
+          gained_points: item.gained_points || '',
+          lost_points: item.lost_points || '',
+          average_points: item.average_points || '',
+          total_events: item.total_events || '',
+          make_cut: item.make_cut || '',
+          top_20: item.top_20 || '',
+          top_10: item.top_10 || '',
+          top_5: item.top_5 || '',
+          win: item.win || '',
+          players_final_pred: item.players_final_pred || '',
+          predicted_round_score: item.predicted_round_score || '',
+          earnings: item.earnings || '',
+          projected_earnings: item.projected_earnings || '',
+          distance: item.distance || '',
+          accuracy: item.accuracy || '',
+          sg_app: item.sg_app || '',
+          sg_arg: item.sg_arg || '',
+          sg_ott: item.sg_ott || '',
+          sg_putt: item.sg_putt || '',
+          sg_t2g: item.sg_t2g || '',
+          sg_bs: item.sg_bs || '',
+          sg_total: item.sg_total || '',
+          gir: item.gir || '',
+          prox_fw: item.prox_fw || '',
+          prox_rgh: item.prox_rgh || '',
+          scrambling: item.scrambling || '',
+          great_shots: item.great_shots || '',
+          poor_shots: item.poor_shots || '',
+          playerSelection_name: item.playerSelection_name || '',
+          last_data_pull: item.last_data_pull || new Date().getTime()
+        })
+      });
+
   SHT_PLAYERLIVE.clearContents();
-  global.setValues_keys(finalDataset_time_stamp, SHT_PLAYERLIVE);
+  global.setValues_keys(final_dataset, SHT_PLAYERLIVE);
 
   // Pass the finalized earnings data directly
-  update_pool_leaderboard(currentEvent, finalDataset_time_stamp);
-
+  update_pool_leaderboard(currentEvent, final_dataset);
+  email_pool_results();
 
 }
 
@@ -120,6 +178,7 @@ function hist_parseDataESPN_results(dataArray) {
       'thru', 
       'current_score',
     ];
+
 
   const final_data_keys = add_keys(finalDataset,headers)
 
