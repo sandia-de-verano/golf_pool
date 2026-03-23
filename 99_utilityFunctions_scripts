@@ -113,6 +113,38 @@ function getCurrentEvent(sheet){
     return null;
   }
 }
+
+function getNEXTEvent(sheet){
+  try {
+    const data = sheet.getDataRange().getValues();
+    if (data.length <= 1) return null;
+
+    const headers = data[0];
+    const values = data.slice(1);
+
+    const dataMapped = values.map(row => {
+      return headers.reduce((obj, header, index) => {
+        let val = row[index];
+        
+        // Check for any header containing "date" and convert to Date object
+        if (header.toLowerCase().includes('date') && val && !(val instanceof Date)) {
+          val = new Date(val);
+        }
+        
+        obj[header] = val;
+        return obj;
+      }, {});
+    });
+
+    const currentEvent = dataMapped.find(item => item.tourItem === 'next');
+    return (currentEvent && currentEvent.url_event) ? currentEvent : null;
+
+  } catch (e) {
+    Logger.log(`Error reading data from sheet: ${e.message}`);
+    return null;
+  }
+}
+
 // --------------------------------------------------------------------------
 
 function getAthleteIdMaps() {
