@@ -1,27 +1,28 @@
 function update_pool_leaderboard() {
-  
   const currentEvent = getCurrentEvent(SHT_LOOKUPTOURNAMENT);
     if (!currentEvent) return;
 
   const id_event = currentEvent.id_event_espn
   const isPoolEvent = currentEvent.isPoolEvent;
+  const tournamentStarted = new Date() >= new Date(currentEvent.adj_start_date);
+
+  const user_selection_data = global.readSheetData(SHT_UPDATE_USERSELECTIONS);
+  const filt_user_selection_data = user_selection_data.filter(item => 
+      String(item.id_event) === String(id_event)
+    );
+    if (filt_user_selection_data.length === 0) {
+    console.log("No user selections found for Event ID: " + id_event + ". Exiting.");
+    return;
+  }
 
   const player_rankings = global.readSheetData(SHT_RANKINGS);
   const player_selection_data = global.readSheetData(SHT_PLAYERDATA);
-  const user_selection_data = global.readSheetData(SHT_UPDATE_USERSELECTIONS);
   const player_live_data = global.readSheetData(SHT_PLAYERLIVE);
     const live_proj_earn_sum = sumField(player_live_data, 'projected_earnings');
     const earnings_sum = sumField(player_live_data, 'earnings');
 
-  console.log(currentEvent)
   console.log(live_proj_earn_sum)
   console.log(earnings_sum)
-
-
-  // 1. Filter User Selections
-  const filt_user_selection_data = user_selection_data.filter(item => 
-    String(item.id_event) === String(id_event)
-  );
 
   // 2. Maps for Lookups (Simplified)
    const playerRankingsMap = new Map();
@@ -33,7 +34,7 @@ function update_pool_leaderboard() {
             fullName: playerObj.fullName,
             position: playerObj.adjusted_rank,
             thru: 0,
-            current_score: 0,
+            current_score: 'E',
           };
         playerRankingsMap.set(id_athlete_espn, player);
     }
@@ -64,10 +65,10 @@ function update_pool_leaderboard() {
             earnings: playerObj.earnings,
             projected_earnings: playerObj.projected_earnings,
             position: (playerObj.current_position === '' || playerObj.current_position == null) 
-                 ? playerObj.adjusted_rank 
-                 : playerObj.current_position,
+            ? (tournamentStarted ? "WD" : playerObj.adjusted_rank) 
+            : playerObj.current_position,
             thru: playerObj.thru || '',
-            current_score: playerObj.current_score || '',     
+            current_score: playerObj.current_score || 'E',     
           };
         playerLiveMap.set(id_athlete_espn, player);
     }
@@ -119,11 +120,11 @@ slots.forEach(slot => {
     let earn_flag = '';
     let earnings = 0;
 
-    if( earnings_sum > 0 && live_proj_earn_sum > 0 && isPoolEvent) { // checking final_earnings
+    if( earnings_sum > 0 && live_proj_earn_sum >= 0 && isPoolEvent) { // checking final_earnings
         earnings = live_data.earnings;
         earn_flag = 'final';
         //console.log('final pool tournament earnings')
-    } else if (earnings_sum > 0 && live_proj_earn_sum > 0 && !isPoolEvent) {
+    } else if (earnings_sum > 0 && live_proj_earn_sum >= 0 && !isPoolEvent) {
         earnings = live_data.earnings;
         earn_flag = 'final_non_pool';
         //console.log('final non-pool tournament earnings')
@@ -143,7 +144,7 @@ slots.forEach(slot => {
       year: player_data.year ?? YEAR,
       position: live_data.position ?? player_ranking.position,
       thru: live_data.thru ?? 0,
-      score: live_data.current_score ?? 0,
+      score: live_data.current_score || 'E',
       earnings: earnings || 0,
       earn_flag: earn_flag ?? "",
       isPoolEvent: isPoolEvent ?? 'false'
@@ -259,7 +260,7 @@ function processData(rawData) {
       pos: row.position,
       name: row.fullName,
       thru: row.thru,
-      score: row.score,
+      score: row.score || 0,
       earn: row.earnings,
     };
   });
@@ -309,7 +310,7 @@ function flattenData_v2(data) {
         typeData.pos || '',
         typeData.name || '',
         typeData.thru || '',
-        typeData.score || '',
+        typeData.score || 0,
         typeData.earn || 0,
       );
     })
