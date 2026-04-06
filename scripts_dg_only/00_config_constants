@@ -1,0 +1,89 @@
+// --- CONFIGURATION CONSTANTS ---
+  const allProps = PropertiesService.getScriptProperties().getProperties();
+  const cache = CacheService.getScriptCache();
+
+// --- SpreadSheets ---
+  // --- Define Sheets ---
+  const SS_ID = allProps['ss_id'];
+  const SS =  SpreadsheetApp.openById(SS_ID);
+
+// --- URLS & DATA SEGMENTS ---
+
+const SOURCEURL = allProps['sourceURL_dg'];
+const API_DG = allProps['api_dg'];
+const API_OPEN_WEATHER = allProps['api_open_weather'];
+const FILEFORMAT = allProps['fileFormat'];
+const APP_LINK = allProps['app_link'];
+
+// --- Other Info ---
+  const TODAY = new Date();
+  const MONTH = TODAY.getMonth();
+  const DAY = TODAY.getDay();
+  let YEAR = TODAY.getFullYear();
+    if (MONTH === 0 && DAY < 7) {
+      YEAR = TODAY.getFullYear() - 1;
+    }
+
+// --- Endpoints and sheets for DG ---
+  const ENDPT_FIELD_UPDATES = '/field-updates';
+  const ENDPT_PLYR_LIST = '/get-player-list';
+  const ENDPT_SCH = '/get-schedule'
+  const ENDPT_HIST_EVT = '/historical-event-data/event-list';
+  const ENDPT_HIST_RNDS = '/historical-event-data/events';
+  const ENDPT_PRD_APPROACH_SKILL = '/preds/approach-skill';
+  const ENDPT_PRD_RANKS = '/preds/get-dg-rankings';
+  const ENDPT_PRD_IN_PLAY = '/preds/in-play';
+  const ENDPT_PRD_LIVE_HOLE = '/preds/live-hole-stats';
+  const ENDPT_PRD_LIVE_TOUR = '/preds/live-tournament-stats';
+  const ENDPT_PRD_PLYR_DECOMP = '/preds/player-decompositions';
+  const ENDPT_PRD_PRE_TOUR = '/preds/pre-tournament';
+  const ENDPT_PRD_SKILL_RATE = '/preds/skill-ratings';
+  const ENDPT_HIST_EVT_RAW = '/historical-raw-data/event-list';
+  const ENDPT_HIST_RAW_DETAIL = '/historical-raw-data/rounds';
+
+  //const ENDPT_BET_MTCH_ALL = '/betting-tools/matchups-all-pairings';
+  //const ENDPT_BET_MTCH = '/betting-tools/matchups';
+  //const ENDPT_BET_OUT = '/betting-tools/outrights';
+  //const ENDPT_DFS_EVT = '/historical-dfs-data/event-list';
+  //const ENDPT_DFS_POINTS = '/historical-dfs-data/points';
+  //const ENDPT_ODDS_EVT = '/historical-odds/event-list';
+  //const ENDPT_ODDS_MTCH = '/historical-odds/matchups';
+  //const ENDPT_ODDS_OUT = '/historical-odds/outrights';
+  //const ENDPT_PRD_FNTSY = '/preds/fantasy-projection-defaults';
+  //const ENDPT_PRD_PRE_TOUR_ARC = '/preds/pre-tournament-archive';
+
+
+  // --- define sheets ---
+
+  const SHT_USERS = setupSheet(SS, 'users');
+  const SHT_POOL_TOUR = setupSheet(SS, 'pool_tournaments');
+  const SHT_CALENDAR = setupSheet(SS, 'schedule');
+  const CURRENT_TOURNAMENT = setupSheet(SS, 'current_tour');
+  const SHT_PLAYERS = setupSheet(SS, 'players');
+  const SHT_FIELD = setupSheet(SS, 'field_data');
+  const SHT_FIELD_SELECTION = setupSheet(SS, 'field_selection');
+  const SHT_PRE_TOUR = setupSheet(SS, 'pre_tour_data');
+  const SHT_PLAYER_STATS = setupSheet(SS, 'player_stats');
+  const SHT_RANKINGS = setupSheet(SS, 'rankings');
+  const SHT_LIVE_HOLE = setupSheet(SS, 'live_hole_stats');
+  const SHT_LIVE_DATA = setupSheet(SS, 'live_tour');
+  const SHT_ESPN_HIST_EVT = setupSheet(SS, 'hist_tournaments');
+  const SHT_USER_SELECTION = setupSheet(SS, 'user_selections');
+  const SHT_LEADERBOARD = setupSheet(SS, 'leaderboard');
+  const SHT_UPDATE_USER_SELECTIONS = setupSheet(SS, 'update_user_selections'); 
+  const SHT_LIV_PLAYERS = setupSheet(SS, 'liv_players');
+  const SHT_PROJ_EARNINGS = setupSheet(SS, 'projected_earnings');
+  const SHT_PRIOR_EVT_MONEY = setupSheet(SS, 'prior_event_money');
+  const SHT_COURSE_INFO = setupSheet(SS, 'course_information');
+  const SHT_ALL_RESULTS = setupSheet(SS, 'all_results');
+  const SHT_WEATHER_FORECAST = setupSheet(SS, 'weather_forecast');
+  const SHT_WEATHER_CURRENT = setupSheet(SS, 'weather_current');
+  const SHT_COURSE_LOCATIONS = setupSheet(SS, 'course_information');
+  
+  //const SHT_TEST = setupSheet(SS, 'test_sheet');
+  //const SHT_COURSE_CODE = setupSheet(SS, 'course_code_manual');
+  //const SHT_HIST_EVT = setupSheet(SS, 'hist_event_ids');
+  //const SHT_HIST_EVT_DETAIL = setupSheet(SS, 'hist_event_details');
+  //const SHT_HIST_EVT_RAW = setupSheet(SS, 'hist_event_raw_ids');
+  //const SHT_HIST_EVT_RAW_DETAIL = setupSheet(SS, 'hist_event_raw_detail');
+  //const SHT_HIST_EVT_RAW_COURSE = setupSheet(SS, 'hist_event_raw_course');
