@@ -1,0 +1,115 @@
+function get_schedule() {
+  const pool_tour = readSheetData(SHT_POOL_TOUR);
+const referenceKeys = new Set(pool_tour.map(ref => {
+  const cleanYear = String(ref.year || "").trim();
+  const cleanId = String(ref.event_id || "").trim();
+  return `${cleanYear}|${cleanId}`;
+}));
+
+  const api_params = {
+    file_format: 'json',
+  };
+
+  const queryParams = Object.entries(api_params)
+    .map(([key, value]) => `${key}=${value}`)
+    .join('&'); 
+    
+  // Fixed variable declaration syntax
+  const endpoint = `${SOURCEURL}${ENDPT_SCH}?${queryParams}&${API_DG}`; 
+  
+  console.log("Fetching Schedule from:", endpoint);
+
+  let std_dataset = [];
+
+  try {
+    const response = UrlFetchApp.fetch(endpoint, { muteHttpExceptions: true });
+    
+    // 1. HTTP Status Check
+    if (response.getResponseCode() !== 200) {
+      console.warn(`Fetch skipped: Status ${response.getResponseCode()}`);
+      return; 
+    }
+
+    const data = JSON.parse(response.getContentText());
+    const dataset = data?.schedule;
+
+    // 2. Validate Dataset
+    if (!dataset || !Array.isArray(dataset)) {
+      console.warn("No schedule data found in the API response.");
+      return;
+    }
+
+    dataset.forEach((item) => { 
+      const winner_split = transformPlayerString(item?.winner) || {}; 
+        const winner = winner_split.player_name || 'TBD'; 
+        const dg_id = winner_split.dg_id || '';
+        const currentYear = String(data.season || YEAR).trim();
+        const currentEventId = String(item?.event_id || "").trim();
+        const lookupKey = `${currentYear}|${currentEventId}`
+        const isMatch = referenceKeys.has(lookupKey);
+        let start_date = new Date(formatDateTimeSafe(item?.start_date));
+        let end_date = new Date(start_date);
+          end_date.setDate(end_date.getDate() + 4);
+          end_date.setHours(18, 00, 00, 000);
+          end_date = formatDateTimeSafe(end_date);
+      std_dataset.push({
+        tour: item?.tour ? item.tour.toUpperCase() : '',
+        is_pool_event:isMatch, 
+        year: currentYear || YEAR,
+        event_id: currentEventId ?? '',
+        event_name: item?.event_name ?? '',
+        start_date: item?.start_date ?? '',
+        end_date: end_date,
+        status: item?.status ?? '',
+        course_key: item?.course_key ?? '',
+        course_name: item?.course ?? '',
+        country: item?.country ?? '',
+        lat: item?.latitude ?? '',
+        lon: item?.longitude ?? '',
+        lat_lon: (item?.latitude && item?.longitude) ? `${item.latitude},${item.longitude}` : '',
+        location: item?.location ?? '',
+        dg_id: dg_id,
+        winner: winner,
+      });
+    });
+
+  const NOW = new Date();
+  const todayTime = NOW.getTime();
+  const endOfCurrentWeek = new Date(NOW);
+    endOfCurrentWeek.setDate(NOW.getDate() + (7 - NOW.getDay()));
+    endOfCurrentWeek.setHours(23, 59, 59, 999);
+
+    let foundNext = false;
+
+    std_dataset.forEach((item) => {
+      const eventStart = new Date(item.start_date);
+      const eventStartTime = eventStart.getTime();
+      let tournamentType = "Upcoming"; // Default
+      if (item.status === 'completed' || (eventStartTime <= todayTime && todayTime <= endOfCurrentWeek.getTime())) {
+        tournamentType = "Final";
+      } else if (item.status === 'Active') {
+        tournamentType = "Current";
+      } else if (item.is_pool_event === true && eventStartTime > todayTime && !foundNext) {
+        tournamentType = "Next";
+        foundNext = true; // Prevents the next tournament in the list from also being called "Next"
+      }
+
+      // 3. Update the object
+      item.tournament_timing = tournamentType;
+    });
+
+    std_dataset.sort((a, b) => a.start_date - b.start_date);
+
+    // 4. Atomic Write: Only clear if we have data to replace it with
+    if (std_dataset.length > 0) {
+      SHT_CALENDAR.clearContents(); 
+      setValues_keys(std_dataset, SHT_CALENDAR);
+      console.log(`Successfully updated schedule with ${std_dataset.length} events.`);
+    }
+
+  } catch (e) {
+    console.error(`Failed to fetch DataGolf schedule: ${e.message}`);
+  }
+}
+
+
