@@ -1,0 +1,70 @@
+function get_rankings() { 
+    const liv_players = SHT_LIV_PLAYERS.getRange(4,14,SHT_LIV_PLAYERS.getLastRow(),1).getValues()
+      .filter(row => row[0] !== "" || row[1] !== "") // Optional: filter out empty rows
+      .map(row => ({ 
+        dg_id: String(row[0]), 
+        active_LIV_player: 'TRUE' 
+      }));
+    
+  const api_params = {
+    file_format: 'json',
+  };
+
+  const queryParams = Object.entries(api_params)
+    .map(([key, value]) => `${key}=${value}`)
+    .join('&'); 
+    
+  const endpoint = `${SOURCEURL}${ENDPT_PRD_RANKS}?${queryParams}&${API_DG}`; 
+  
+  console.log("Fetching Pred Ranks from:", endpoint);
+
+  let std_dataset = [];
+  
+  try {
+    const response = UrlFetchApp.fetch(endpoint, { muteHttpExceptions: true });
+    
+    // 1. HTTP Status Check
+    if (response.getResponseCode() !== 200) {
+      console.warn(`Fetch skipped: Status ${response.getResponseCode()}`);
+      return; 
+    }
+
+    const data = JSON.parse(response.getContentText());
+    const dataset = data?.rankings;
+
+    // 2. Data Validation
+    if (!dataset || !Array.isArray(dataset)) {
+      console.warn("No rankings data found in the API response.");
+      return;
+    }
+
+    dataset.forEach((item) => {
+      let item_rank_data = get_adjusted_rank_datagolf(item); 
+      let adjusted_rank = item_rank_data.adjusted_rank || "501";
+      std_dataset.push({
+        dg_id: item?.dg_id ?? '',
+        player_name: item?.player_name ?? '',
+        player_name_clean: typeof swapNameOrder === 'function' ? swapNameOrder(item?.player_name) : (item?.player_name ?? ''),
+        amateur: item?.am ?? '', 
+        datagolf_rank: item?.datagolf_rank ?? '',
+        owgr_rank: item?.owgr_rank ?? '',
+        adjusted_rank: adjusted_rank,
+        primary_tour: item?.primary_tour ?? '',
+        dg_skill_estimate: item?.dg_skill_estimate ?? '',
+        country: item?.country ?? '',
+      });
+    });
+
+    std_dataset = merge_data(std_dataset,liv_players,'dg_id')
+
+    // 3. Atomic Update: Clear and Write only if data exists
+    if (std_dataset.length > 0) {
+      SHT_RANKINGS.clearContents(); 
+      setValues_keys(std_dataset, SHT_RANKINGS);
+      console.log(`Successfully updated ${std_dataset.length} player rankings.`);
+    }
+
+  } catch (e) {
+    console.error(`Failed to process DataGolf rankings: ${e.message}`);
+  }
+}
