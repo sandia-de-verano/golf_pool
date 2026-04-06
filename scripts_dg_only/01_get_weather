@@ -1,0 +1,165 @@
+function open_weather() {
+  const apiKey = API_OPEN_WEATHER
+
+  const currentEvent = readSheetData(CURRENT_TOURNAMENT);
+      if (!currentEvent) return;
+    const course_key = currentEvent[0].course_key;
+
+  const locations = readSheetData(SHT_COURSE_LOCATIONS);
+  console.log(locations[2].course_key)
+
+    const event_location = locations.filter(item => 
+      String(item.course_key) === String(course_key)
+    );
+
+    if (event_location.length === 0) {
+        console.log('No events');
+        return; 
+    }
+
+  const current_results = [];
+  const forcast_results = [];
+
+    const courseName = event_location[0].course_name;
+    const lat = event_location[0].lat;
+    const lon = event_location[0].lon;
+    const lat_lon = lat+","+lon
+
+      try {
+        // Construct the API URL (units=metric for Celsius, imperial for Fahrenheit)
+        const url = `https://api.openweathermap.org/data/3.0/onecall?lat=${lat}&lon=${lon}&appid=${apiKey}&units=imperial`;
+
+        console.log(url)
+        
+        const response = UrlFetchApp.fetch(url, { muteHttpExceptions: true });
+        const data = JSON.parse(response.getContentText());
+        const forecast_data = data.daily
+        const curr = data.current;
+        const today_forecast = forecast_data[0]; // Used for min/max and rain
+
+        const current_obj = {
+          courseName: courseName,
+          lat: lat,
+          lon: lon,
+          lat_lon: lat_lon,
+          current_time_location: Utilities.formatDate(new Date((curr.dt + data.timezone_offset) * 1000), "GMT", "yyyy-MM-dd HH:mm:ss"),
+          feels_like: curr.feels_like,
+          temp: curr.temp,
+          temp_max: today_forecast.temp.max,
+          temp_min: today_forecast.temp.min,
+          dew_point: curr.dew_point,
+          heat_index: calculateHeatIndex(curr.temp, curr.humidity),
+          wind_chill: calculateWindChill(curr.temp, curr.wind_speed),
+          pressure: curr.pressure,
+          daily_pop: today_forecast.pop || 0,
+          daily_rain: today_forecast.rain || 0,
+          wind_speed: curr.wind_speed || 0, 
+          wind_gust: curr.wind_gust || 0,
+          wind_deg: curr.wind_deg || 0,
+          humidity: curr.humidity || 0,
+          clouds: curr.clouds,
+          visibility: curr.visibility,
+          weather_id: curr.weather[0].id,
+          weather_main: curr.weather[0].main,
+          weather_description: toTitleCase(curr.weather[0].description),
+          sunrise: Utilities.formatDate(new Date((curr.sunrise + data.timezone_offset) * 1000), "GMT", "yyyy-MM-dd HH:mm:ss"),
+          sunset: Utilities.formatDate(new Date((curr.sunset + data.timezone_offset) * 1000), "GMT", "yyyy-MM-dd HH:mm:ss"),
+          uvi: curr.uvi
+    };
+    current_results.push(current_obj);
+
+      
+    forecast_data.forEach((day) => {
+      forcast_results.push({
+        courseName: courseName,
+        lat: lat,
+        lon: lon,
+        lat_lon: lat_lon,
+        forcast_time_location: Utilities.formatDate(new Date((day.dt + data.timezone_offset) * 1000), "GMT", "yyyy-MM-dd HH:mm:ss"),
+        daily_feels_like: day.feels_like.day,
+        daily_temp_day: day.temp.day,
+        daily_temp_max: day.temp.max,
+        daily_temp_min: day.temp.min,
+        daily_dew_point: day.dew_point,
+        daily_heat_index: calculateHeatIndex(day.temp.day, day.humidity),
+        daily_wind_chill: calculateWindChill(day.temp.day, day.wind_speed),
+        daily_pressure: day.pressure,
+        daily_pop: day.pop || 0,
+        daily_rain: day.rain || 0,
+        daily_wind_speed: day.wind_speed || 0,
+        daily_wind_gust: day.wind_gust || 0,
+        daily_wind_deg: day.wind_deg || 0,
+        daily_humidity: day.humidity || 0,
+        daily_clouds: day.clouds,
+        daily_visibility: day.visibility || 10000,
+        daily_weather_id: day.weather[0].id,
+        daily_weather_main: day.weather[0].main,
+        daily_weather_description: toTitleCase(day.weather[0].description), 
+        daily_summary: day.summary,
+        daily_moon_phase: day.moon_phase,
+        daily_uvi: day.uvi
+      });
+    });
+
+      } catch (e) {
+        //console.error("Error fetching data for " + courseName + ": " + e);
+      }
+
+  if (forcast_results.length > 0) {
+    SHT_WEATHER_FORECAST.clearContents(); 
+    setValues_keys(forcast_results, SHT_WEATHER_FORECAST);
+    console.log(`Successfully updated forcast with ${forcast_results.length} events.`);
+  }
+
+  if (current_results.length > 0) {
+    SHT_WEATHER_CURRENT.clearContents(); 
+    setValues_keys(current_results, SHT_WEATHER_CURRENT);
+    console.log(`Successfully updated forcast with ${current_results.length} events.`);
+  }
+
+}
+
+function calculateHeatIndex(temp, humidity) {
+  // 1. Initial Simplified Calculation
+  let hi = 0.5 * (temp + 61.0 + ((temp - 68.0) * 1.2) + (humidity * 0.094));
+
+  // 2. If the average is above 80°F, use the full regression formula
+  if (hi >= 80) {
+    hi = -42.379 + 2.04901523 * temp + 10.14333127 * humidity 
+         - 0.22475541 * temp * humidity - 0.00683783 * temp * temp 
+         - 0.05481717 * humidity * humidity + 0.00122874 * temp * temp * humidity 
+         + 0.00085282 * temp * humidity * humidity - 0.00000199 * temp * temp * humidity * humidity;
+
+    // 3. Adjustment for Low Humidity (RH < 13% and Temp between 80-112°F)
+    if (humidity < 13 && temp >= 80 && temp <= 112) {
+      let adjustment = ((13 - humidity) / 4) * Math.sqrt((17 - Math.abs(temp - 95)) / 17);
+      hi -= adjustment;
+    } 
+    // 4. Adjustment for High Humidity (RH > 85% and Temp between 80-87°F)
+    else if (humidity > 85 && temp >= 80 && temp <= 87) {
+      let adjustment = ((humidity - 85) / 10) * ((87 - temp) / 5);
+      hi += adjustment;
+    }
+  }
+
+  return hi;
+}
+
+function calculateWindChill(temp,wind){
+  let wind_chill;
+  if (temp <= 50 && wind > 3) {
+    wind_chill = 35.74 + 0.6215 * temp - 35.75 * Math.pow(wind, 0.16) + 0.4275 * temp * Math.pow(wind, 0.16);
+  } else {
+    wind_chill = temp; // Wind chill is not applicable
+  }
+
+  return wind_chill;
+
+}
+
+function toTitleCase(str) {
+  return str.split(' ')
+    .map(word => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
+    .join(' ');
+}
+
