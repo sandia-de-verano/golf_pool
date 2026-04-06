@@ -1,0 +1,64 @@
+function get_player_list() { 
+  const liv_players = SHT_LIV_PLAYERS.getRange(4,14,SHT_LIV_PLAYERS.getLastRow(),1).getValues()
+      .filter(row => row[0] !== "" || row[1] !== "") // Optional: filter out empty rows
+      .map(row => ({ 
+        dg_id: String(row[0]), 
+        active_LIV_player: 'TRUE' 
+      }));
+
+  const api_params = {
+    file_format: 'json',
+  };
+
+  const queryParams = Object.entries(api_params)
+    .map(([key, value]) => `${key}=${value}`)
+    .join('&'); 
+    
+  const endpoint = `${SOURCEURL}${ENDPT_PLYR_LIST}?${queryParams}&${API_DG}`; 
+  
+  console.log("Fetching Player List from:", endpoint);
+
+  let std_dataset = [];
+
+  try {
+    const response = UrlFetchApp.fetch(endpoint, { muteHttpExceptions: true });
+    
+    // 1. Check HTTP Status
+    if (response.getResponseCode() !== 200) {
+      console.warn(`Fetch skipped: Status ${response.getResponseCode()}`);
+      return; 
+    }
+
+    const dataset = JSON.parse(response.getContentText());
+
+    // 2. Validate that dataset is an array
+    if (!dataset || !Array.isArray(dataset)) {
+      console.warn("API response is not a valid player array.");
+      return;
+    }
+
+    dataset.forEach((item) => {
+      // 3. Use Optional Chaining (?.) to prevent crashes on null items
+      std_dataset.push({
+        dg_id: item?.dg_id ?? '',
+        player_name: item?.player_name ?? '',
+        player_name_clean: typeof swapNameOrder === 'function' ? swapNameOrder(item?.player_name) : (item?.player_name ?? ''),
+        amateur: item?.amateur ?? '',
+        country: item?.country ?? '',
+        country_code: item?.country_code ?? '',
+      });
+    });
+
+    std_dataset = merge_data(std_dataset,liv_players,'dg_id')
+
+    // 4. Atomic Write: Only clear the sheet if we actually have data
+    if (std_dataset.length > 0) {
+      SHT_PLAYERS.clearContents(); 
+      setValues_keys(std_dataset, SHT_PLAYERS);
+      console.log(`Successfully updated ${std_dataset.length} players.`);
+    }
+
+  } catch (e) {
+    console.error(`Failed to fetch or process Player List: ${e.message}`);
+  }
+}
