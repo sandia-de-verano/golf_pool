@@ -1,0 +1,341 @@
+function get_pre_tour_data() {
+  let std_dataset
+  
+  const approach_skill = dg_get_prd_approach_skill()
+  const player_decomp = dg_get_prd_player_decomp()
+  const player_skill_rating = dg_get_prd_skill_rating()
+  const pre_tour = dg_get_prd_pre_tour()
+
+  let stats_dataset =  merge_data(player_skill_rating,approach_skill,'dg_id')
+
+  std_dataset = merge_data(player_decomp,pre_tour,'dg_id')
+  std_dataset = merge_data(std_dataset,stats_dataset,'dg_id')
+
+  std_dataset.sort((a, b) => a.total - b.total);
+
+  if (std_dataset.length > 0) {
+    SHT_PRE_TOUR.clearContents(); 
+    setValues_keys(std_dataset, SHT_PRE_TOUR);
+    console.log(`Successfully updated pre tour data with ${std_dataset.length} events.`);
+  }
+
+  if (stats_dataset.length > 0) {
+    SHT_PLAYER_STATS.clearContents(); 
+    setValues_keys(stats_dataset, SHT_PLAYER_STATS);
+    console.log(`Successfully updated player stats with ${stats_dataset.length} events.`);
+  }
+
+  get_past_event_earnings()
+
+}
+
+// ---------------------------------------------------------------------------------------
+// dg_get_prd_approach_skill
+
+function dg_get_prd_approach_skill() {
+  const endpoint = `${SOURCEURL}${ENDPT_PRD_APPROACH_SKILL}?${FILEFORMAT}${API_DG}`;
+
+  console.log("Fetching Approach Skill from:", endpoint);
+
+  let std_dataset = [];
+
+  // --- 1. Fetch Data ---
+  let data;
+  try {
+    const response = UrlFetchApp.fetch(endpoint, { muteHttpExceptions: true });
+    
+    // Explicitly check response code
+    if (response.getResponseCode() !== 200) {
+      console.warn(`Fetch skipped: Server returned status ${response.getResponseCode()}`);
+      return; // Exit gracefully
+    }
+    
+    data = JSON.parse(response.getContentText());
+
+  } catch (e) {
+    console.error(`Network or Parsing Error: ${e.message}`);
+    return;
+  }
+
+  // --- 2. Process Data ---
+  const dataset = data?.data;
+
+  dataset.forEach((item) => {
+      std_dataset.push({
+      "dg_id": item?.dg_id ?? '', 
+      ...item
+
+      });
+    });
+
+
+  if (std_dataset && Array.isArray(std_dataset) && std_dataset.length > 0) {
+    return std_dataset
+  } else {
+    console.warn("No data found in the API response.");
+  }
+}
+
+// ---------------------------------------------------------------------------------------
+// dg_get_prd_player_decomp
+function dg_get_prd_player_decomp() {
+  const endpoint = `${SOURCEURL}${ENDPT_PRD_PLYR_DECOMP}?${FILEFORMAT}${API_DG}`;
+
+  console.log("Fetching Player Decomp from:", endpoint);
+
+  const std_dataset = [];
+  try {
+    const response = UrlFetchApp.fetch(endpoint, { muteHttpExceptions: true });
+    
+    // 1. Check HTTP Status
+    if (response.getResponseCode() !== 200) {
+      console.warn(`Fetch skipped: Status ${response.getResponseCode()}`);
+      return; 
+    }
+
+    const data = JSON.parse(response.getContentText());
+    const dataset = data?.players;
+
+    // 2. Check if player data exists
+    if (!dataset || !Array.isArray(dataset)) {
+      console.warn("No player decomposition data found in the response.");
+      return;
+    }
+
+    dataset.forEach((item) => {
+      std_dataset.push({
+        dg_id: item?.dg_id ?? '',
+        player_name: item?.player_name ?? '',
+        player_name_clean: swapNameOrder(item?.player_name) ?? '',
+        amateur: item?.am ?? '',
+        age: item?.age ?? '',
+        age_adjustment: item?.age_adjustment ?? '',
+        baseline_pred: item?.baseline_pred ?? '',
+        cf_approach_comp: item?.cf_approach_comp ?? '',
+        cf_short_comp: item?.cf_short_comp ?? '',
+        country: item?.country ?? '',
+        country_adjustment: item?.country_adjustment ?? '',
+        course_experience_adjustment: item?.course_experience_adjustment ?? '',
+        course_history_adjustment: item?.course_history_adjustment ?? '',
+        driving_accuracy_adjustment: item?.driving_accuracy_adjustment ?? '',
+        driving_distance_adjustment: item?.driving_distance_adjustment ?? '',
+        final_pred: item?.final_pred ?? '',
+        other_fit_adjustment: item?.other_fit_adjustment ?? '',
+        strokes_gained_category_adjustment: item?.strokes_gained_category_adjustment ?? '',
+        timing_adjustment: item?.timing_adjustment ?? '',
+        total_course_history_adjustment: item?.total_course_history_adjustment ?? '',
+        total_fit_adjustment: item?.total_fit_adjustment ?? '',
+        true_sg_adjustments: item?.true_sg_adjustments ?? '',
+        sample_size: item?.sample_size ?? '',
+        std_deviation: item?.std_deviation ?? '',
+      });
+    });
+
+  if (std_dataset && Array.isArray(std_dataset) && std_dataset.length > 0) {
+    return std_dataset
+  } else {
+    console.warn("No data found in the API response.");
+  }
+
+  } catch (e) {
+    console.error(`Failed to process player decomp: ${e.message}`);
+  }
+}
+
+// ---------------------------------------------------------------------------------------
+// dg_get_prd_skill_rating
+function dg_get_prd_skill_rating() {
+  const endpoint = `${SOURCEURL}${ENDPT_PRD_SKILL_RATE}?${FILEFORMAT}${API_DG}`;
+
+  console.log("Fetching Skill Ratings from:", endpoint);
+
+  const std_dataset = [];
+  
+  try {
+    const response = UrlFetchApp.fetch(endpoint, { muteHttpExceptions: true });
+    
+    if (response.getResponseCode() !== 200) {
+      console.warn(`Fetch skipped: Status ${response.getResponseCode()}`);
+      return; 
+    }
+
+    const data = JSON.parse(response.getContentText());
+    const dataset = data?.players; // Use optional chaining
+
+    if (!dataset || !Array.isArray(dataset)) {
+      console.warn("No player data found in the response.");
+      return;
+    }
+
+    dataset.forEach((item) => {
+      std_dataset.push({
+        dg_id: item?.dg_id ?? '',
+        player_name: item?.player_name ?? '',
+        player_name_clean: typeof swapNameOrder === 'function' ? swapNameOrder(item?.player_name) : item?.player_name,
+        driving_acc: item?.driving_acc ?? '',
+        driving_dist: item?.driving_dist ?? '',
+        sg_app: item?.sg_app ?? '',
+        sg_arg: item?.sg_arg ?? '',
+        sg_ott: item?.sg_ott ?? '',
+        sg_putt: item?.sg_putt ?? '',
+        sg_total: item?.sg_total ?? '',
+      });
+    });
+
+  if (std_dataset && Array.isArray(std_dataset) && std_dataset.length > 0) {
+    return std_dataset
+  } else {
+    console.warn("No data found in the API response.");
+  }
+
+  } catch (e) {
+    console.error(`Failed to fetch DataGolf rankings: ${e.message}`);
+  }
+}
+
+// ---------------------------------------------------------------------------------------
+// dg_get_prd_pre_tour
+function dg_get_prd_pre_tour () {
+ 
+  const endpoint = `${SOURCEURL}${ENDPT_PRD_PRE_TOUR}?${FILEFORMAT}${API_DG}`;
+
+  console.log(endpoint)
+
+  // --- 1. Fetch Data ---
+  let data;
+  const std_dataset = [];
+  try {
+    const response = UrlFetchApp.fetch(endpoint, { muteHttpExceptions: true });
+    if (response.getResponseCode() !== 200) {
+      throw new Error(`HTTP Error ${response.getResponseCode()}`);
+    }
+    data = JSON.parse(response.getContentText());
+    const dataset = data.baseline_history_fit
+    
+    dataset.forEach((item) => {
+      std_dataset.push({
+        dg_id: item?.dg_id ?? '',
+        player_name: item?.player_name ?? '',
+        player_name_clean: swapNameOrder(item?.player_name),
+        amateur: item?.am ?? '',
+        country: item?.country ?? '',
+        make_cut: item?.make_cut ?? '',
+        top_20: item?.top_20 ?? '',
+        top_10: item?.top_10 ?? '',
+        top_5: item?.top_5 ?? '',
+        win: item?.win ?? '',
+        sample_size: item?.sample_size ?? '',
+      })
+    })
+
+  if (std_dataset && Array.isArray(std_dataset) && std_dataset.length > 0) {
+    return std_dataset
+  } else {
+    console.warn("No data found in the API response.");
+  }
+
+  } catch (e) {
+    console.log(`Failed to fetch DataGolf rankings: ${e.message}`);
+    return;
+  }
+
+
+}
+
+// ---------------------------------------------------------------------------------------
+// get_past_event_earnings
+
+function get_past_event_earnings() {
+
+  const current_tournament = readSheetData(CURRENT_TOURNAMENT);
+    const event_id = current_tournament[0].event_id;
+    const event_name = current_tournament[0].event_name;
+
+  let pool_tour = readSheetData(SHT_ESPN_HIST_EVT);
+
+  const url_constants = pool_tour
+    .filter(item => String(item.event_id) === String(event_id) &&  String(item.event_name) === String(event_name));
+
+  console.log('number of events: '+url_constants.length)
+
+  const url_event = url_constants.map(function(obj) {
+        return [
+      obj.url_event || `http://sports.core.api.espn.com/v2/sports/golf/leagues/pga/events/${obj.event_id_espn}?lang=en&region=us` || '',
+      obj.year 
+    ];
+  });
+
+ var dataset = [];
+ var headers = ['year','n_comp','order','earnings']
+    
+  for (var i = 0; i < url_event.length; i++) {
+    // Wrap the INSIDE of the loop in try-catch
+    try {
+      var year = url_event[i][1];
+      const response = UrlFetchApp.fetch(url_event[i][0], {muteHttpExceptions: true});
+      
+      if (response.getResponseCode() !== 200) {
+        // This will now jump to the catch below, then continue to the next 'i'
+        console.warn(`Skipping: HTTP Error ${response.getResponseCode()} for ${url_event[i][0]}`);
+        continue; 
+      }
+
+      var data = JSON.parse(response.getContentText());
+      
+      // Safety check: ensure the ESPN path exists before accessing length
+      if (!data.competitions || !data.competitions[0]) continue;
+      
+      var competitors = data.competitions[0].competitors;
+      var n_comp = competitors.length;
+
+      for (var j = 0; j < competitors.length; j++) {
+        var player = competitors[j];
+        var order = player.order || '';
+        var earnings = player.earnings || 0;
+
+        dataset.push([
+          year,
+          n_comp,
+          order,
+          earnings
+        ]);
+      }
+
+    } catch (e) {
+      // This catches JSON parsing errors or other unexpected issues
+      console.error(`Error processing index ${i} (${url_event[i][0]}): ${e.message}`);
+    }
+  }
+
+  
+  var dataset_filtered = dataset.filter(item => {
+    value = item[3]
+    return value !== "" && value !== 0;
+  });
+
+  console.log('number of rows: '+dataset_filtered.length)
+
+  if (dataset_filtered.length === 0) {
+    console.log('No earnings reported')
+  }
+
+  SHT_PRIOR_EVT_MONEY.clearContents()
+  setValues(dataset_filtered,SHT_PRIOR_EVT_MONEY,headers)
+}
+
+function fetch_url(endpoint) {
+  // --- 1. Fetch Data ---
+  let data;
+  try {
+    const response = UrlFetchApp.fetch(endpoint, { muteHttpExceptions: true });
+    if (response.getResponseCode() !== 200) {
+      throw new Error(`HTTP Error ${response.getResponseCode()}`);
+    }
+    data = JSON.parse(response.getContentText());
+  } catch (e) {
+    console.log(`Failed to fetch DataGolf field updates: ${e.message}`);
+    return;
+  }
+  return data
+}
+
