@@ -1,0 +1,1093 @@
+function get_live_data() {
+  let std_dataset
+
+  const tz = Session.getScriptTimeZone();
+  
+  const current_event = readSheetData(CURRENT_TOURNAMENT)
+    const tournamentStarted = new Date() >= new Date(current_event[0].adj_start_date);
+  const field_data = readSheetData(SHT_FIELD)
+
+  console.log(tournamentStarted)
+
+      const proj_earnings_raw = SHT_PROJ_EARNINGS.getRange(1,7,SHT_PROJ_EARNINGS.getLastRow(),2).getValues();
+      const proj_earnings_values = proj_earnings_raw.slice(1);
+      const proj_earnings_headers = ['order','projected_earnings'];
+
+    let proj_earnings = add_keys(proj_earnings_values,proj_earnings_headers)
+      proj_earnings = add_keys(proj_earnings_values,proj_earnings_headers)
+      proj_earnings = proj_earnings.filter(obj => obj.order.toString().trim() !== '');
+
+      const prizeMap = proj_earnings.reduce((acc, curr) => {
+      acc[curr.order] = curr.projected_earnings;
+      return acc;
+    }, {});
+
+// Building Data
+// -------------------------------------------------------------------------------------------
+// If live tournament has not started - field updates
+
+  if (!tournamentStarted) {
+    console.log("Tournament not started. Using Field Data.")
+    const pre_tour_data = readSheetData(SHT_PRE_TOUR)
+    std_dataset = merge_data(field_data,pre_tour_data,'dg_id')
+
+    std_dataset.forEach((item) => {
+      std_dataset.push({
+        projected_earnings: 0,
+        earnings: 0,
+      });
+    });
+
+      std_dataset = calculateGolfWinnings(std_dataset,prizeMap,tournamentStarted)
+
+    let final_dataset = []; 
+
+    std_dataset.forEach((item) => {
+          final_dataset.push({
+            current_round: item.current_round || '',	
+            event_name: item.event_name || '',		
+            dg_id	: item.dg_id || '',	
+            player_name: item.player_name || '',		
+            player_name_clean: item.player_name_clean || '',		
+            country: item.country || '',		
+            current_position: (item.current_position === '' || item.current_position == null && item.player_name != "DATA GOLF CUT" && item.player_name != "PREDICTED CUT") 
+              ? (tournamentStarted ? "WD" : item.effective_rank) 
+              : item.current_position,	
+            total: item.total || 0,		
+            round: item.round || '',		
+            R1: item.R1 || '',		
+            R2: item.R2 || '',		
+            R3: item.R3 || '',		
+            R4: item.R4 || '',		
+            thru: item.thru || '',		
+            today: item.today || '',		
+            end_hole: item.end_hole || '',	
+            earnings: item.earnings || '',
+            projected_earnings: item.projected_earnings || '',	
+            make_cut: item.make_cut || '',		
+            top_20	: item.top_20 || '',	
+            top_10	: item.top_10 || '',	
+            top_5	: item.top_5 || '',	
+            win: item.win || '',
+            course_code: item.course_code || '',			
+            course_name	: item.course_name || '',	
+            distance: item.driving_dist || '',
+            accuracy: item.accuracy || '',
+            sg_app: item.sg_app || '',
+            sg_arg: item.sg_arg || '',
+            sg_ott: item.sg_ott || '',
+            sg_putt: item.sg_putt || '',
+            sg_t2g: item.sg_t2g || '',
+            sg_bs: item.sg_bs || '',
+            sg_total: item.sg_total || '',
+            gir: item.gir || '',
+            prox_fw: item.prox_fw || '',
+            prox_rgh: item.prox_rgh || '',
+            scrambling: item.scrambling || '',
+            great_shots: item.great_shots || '',
+            poor_shots: item.poor_shots || '',
+            r1_teetime: item.r1_teetime ? Utilities.formatDate(new Date(item.r1_teetime), tz, "yyyy-MM-dd HH:mm:ss") : null,
+            r2_teetime: item.r2_teetime ? Utilities.formatDate(new Date(item.r2_teetime), tz, "yyyy-MM-dd HH:mm:ss") : null,
+            r3_teetime: item.r3_teetime ? Utilities.formatDate(new Date(item.r3_teetime), tz, "yyyy-MM-dd HH:mm:ss") : null,
+            r4_teetime: item.r4_teetime ? Utilities.formatDate(new Date(item.r4_teetime), tz, "yyyy-MM-dd HH:mm:ss") : null,	
+            effective_rank: item.effective_rank || 500,			
+            last_updated: item.last_updated || new Date().getTime()
+          })
+    })
+
+    final_dataset = final_dataset.filter(obj => obj.event_name)
+      final_dataset.sort((a, b) => a.total - b.total);
+      final_dataset.sort((a, b) => a.effective_rank - b.effective_rank);
+    
+    if (final_dataset.length > 0) {
+      SHT_LIVE_DATA.clearContents(); 
+      setValues_keys(final_dataset, SHT_LIVE_DATA);
+    }
+
+// ---------------------------------------------------------------------------------------------
+// If live tournament has started - in play data
+
+  } else {
+    console.log("Tournament started. Using Live Data.")
+    const in_play = get_prd_live_event()
+    const live_stats = get_prd_live_tour_stats()
+    const final_earnings = get_final_earnings()
+
+    std_dataset = merge_data(in_play,live_stats,'dg_id')
+    std_dataset = merge_data(std_dataset,field_data,'dg_id')
+
+    let withdrawn_players = []
+    const field_selection = readSheetData(SHT_FIELD_SELECTION)
+
+    if (tournamentStarted) {
+      const dg_id_std_data = merge_remaining(std_dataset,field_selection,'dg_id')
+      dg_id_std_data.forEach((item) => {
+        withdrawn_players.push({
+          event_name: item.event_name || '',
+          dg_id: item.dg_id	 || '',
+          player_name_clean: item.player_name_clean	 || '',
+          current_position: 'WD',
+          make_cut: 0,
+          projected_earnings: 0,
+          earnings: 0,
+        })
+      })
+      std_dataset = merge_full_outer(std_dataset,dg_id_std_data,'dg_id')
+    }
+
+    const dg_cut_filter_data = std_dataset.filter(obj => obj.make_cut > .5)
+    const data_len = std_dataset.filter(obj => obj.player_name && obj.player_name !== "")
+
+    const total_avg_cut = std_dataset.reduce((sum, obj) => sum + (obj.total || 0), 0);
+    const average_avg_cut = total_avg_cut / std_dataset.length;
+
+    const total_dg_cut = dg_cut_filter_data.reduce((sum, obj) => sum + (obj.total  || 0), 0);
+    const average_dg_cut = total_dg_cut / std_dataset.length;
+
+    const projected_earnings = (data_len.reduce((sum, obj) => sum + (obj.projected_earnings || 0), 0)) / data_len.length;
+    const distance = (data_len.reduce((sum, obj) => sum + (obj.distance || 0), 0)) / data_len.length;
+    const accuracy = (data_len.reduce((sum, obj) => sum + (obj.accuracy || 0), 0)) / data_len.length;
+    const sg_app = (data_len.reduce((sum, obj) => sum + (obj.sg_app || 0), 0)) / data_len.length;
+    const sg_arg = (data_len.reduce((sum, obj) => sum + (obj.sg_arg || 0), 0)) / data_len.length;
+    const sg_ott = (data_len.reduce((sum, obj) => sum + (obj.sg_ott || 0), 0)) / data_len.length;
+    const sg_putt = (data_len.reduce((sum, obj) => sum + (obj.sg_putt || 0), 0)) / data_len.length;
+    const sg_t2g = (data_len.reduce((sum, obj) => sum + (obj.sg_t2g || 0), 0)) / data_len.length;
+    const sg_bs = (data_len.reduce((sum, obj) => sum + (obj.sg_bs || 0), 0)) / data_len.length;
+    const sg_total = (data_len.reduce((sum, obj) => sum + (obj.sg_total || 0), 0)) / data_len.length;
+    const gir = (data_len.reduce((sum, obj) => sum + (obj.gir || 0), 0)) / data_len.length;
+    const prox_fw = (data_len.reduce((sum, obj) => sum + (obj.prox_fw || 0), 0)) / data_len.length;
+    const prox_rgh = (data_len.reduce((sum, obj) => sum + (obj.prox_rgh || 0), 0)) / data_len.length;
+    const scrambling = (data_len.reduce((sum, obj) => sum + (obj.scrambling || 0), 0)) / data_len.length;
+    const great_shots = (data_len.reduce((sum, obj) => sum + (obj.great_shots || 0), 0)) / data_len.length;
+    const poor_shots = (data_len.reduce((sum, obj) => sum + (obj.poor_shots || 0), 0)) / data_len.length;
+
+
+    let predicted_cut_average = {
+      event_name: current_event[0].event_name,
+      dg_id: "x0001",	
+      player_name: "PREDICTED CUT",
+      player_name_clean: "PREDICTED CUT",
+      total: average_avg_cut,
+      round: std_dataset[0].round,
+      projected_earnings: projected_earnings,
+      effective_rank: 600
+    };
+
+    let predicted_cut_average_dg = {
+      event_name: current_event[0].event_name,
+      dg_id: "x0002",
+      player_name: "DATA GOLF CUT",
+      player_name_clean: "DATA GOLF CUT",
+      make_cut: .499999999999,
+      total: average_dg_cut,
+      projected_earnings: projected_earnings,
+      distance: distance,	
+      accuracy: accuracy,		
+      sg_app: sg_app,		
+      sg_arg: sg_arg,		
+      sg_ott: sg_ott,		
+      sg_putt: sg_putt,		
+      sg_t2g: sg_t2g,		
+      sg_bs: sg_bs,		
+      sg_total: sg_total,		
+      gir: gir,		
+      prox_fw: prox_fw,		
+      prox_rgh: prox_rgh,		
+      scrambling: scrambling,		
+      great_shots: great_shots,
+      poor_shots: poor_shots,	
+      effective_rank: 600 
+    };
+
+    std_dataset.push(predicted_cut_average,predicted_cut_average_dg)  
+
+    std_dataset.forEach((item) => {
+      std_dataset.push({
+        projected_earnings: 0,
+        earnings: 0,
+      });
+    });
+
+    std_dataset = calculateGolfWinnings(std_dataset,prizeMap,tournamentStarted)
+    std_dataset = merge_data(std_dataset,final_earnings,'dg_id')
+
+  let final_dataset = []; 
+
+    std_dataset.forEach((item) => {
+          final_dataset.push({
+            current_round: item.current_round || '',	
+            event_name: item.event_name || '',		
+            dg_id	: item.dg_id || '',	
+            player_name: item.player_name || '',		
+            player_name_clean: item.player_name_clean || '',		
+            country: item.country || '',		
+            current_position: (item.current_position === '' || item.current_position == null && item.player_name != "DATA GOLF CUT" && item.player_name != "PREDICTED CUT") 
+              ? (tournamentStarted ? "WD" : item.effective_rank) 
+              : item.current_position,		
+            total: item.total || 0,		
+            round: item.round || '',		
+            R1: item.R1 || '',		
+            R2: item.R2 || '',		
+            R3: item.R3 || '',		
+            R4: item.R4 || '',		
+            thru: item.thru || '',		
+            today: item.today || '',		
+            end_hole: item.end_hole || '',	
+            earnings: item.earnings || '',
+            projected_earnings: item.projected_earnings || '',	
+            make_cut: item.make_cut || '',		
+            top_20	: item.top_20 || '',	
+            top_10	: item.top_10 || '',	
+            top_5	: item.top_5 || '',	
+            win: item.win || '',
+            course_code: item.course_code || '',			
+            course_name	: item.course_name || '',	
+            distance: item.distance || '',
+            accuracy: item.accuracy || '',
+            sg_app: item.sg_app || '',
+            sg_arg: item.sg_arg || '',
+            sg_ott: item.sg_ott || '',
+            sg_putt: item.sg_putt || '',
+            sg_t2g: item.sg_t2g || '',
+            sg_bs: item.sg_bs || '',
+            sg_total: item.sg_total || '',
+            gir: item.gir || '',
+            prox_fw: item.prox_fw || '',
+            prox_rgh: item.prox_rgh || '',
+            scrambling: item.scrambling || '',
+            great_shots: item.great_shots || '',
+            poor_shots: item.poor_shots || '',
+            r1_teetime: item.r1_teetime ? Utilities.formatDate(new Date(item.r1_teetime), tz, "yyyy-MM-dd HH:mm:ss") : null,
+            r2_teetime: item.r2_teetime ? Utilities.formatDate(new Date(item.r2_teetime), tz, "yyyy-MM-dd HH:mm:ss") : null,
+            r3_teetime: item.r3_teetime ? Utilities.formatDate(new Date(item.r3_teetime), tz, "yyyy-MM-dd HH:mm:ss") : null,
+            r4_teetime: item.r4_teetime ? Utilities.formatDate(new Date(item.r4_teetime), tz, "yyyy-MM-dd HH:mm:ss") : null,	
+            effective_rank: item.effective_rank || 500,			
+            last_updated: item.last_updated || new Date().getTime()
+          })
+    })
+
+  
+  
+  let updated_field_selection = []; 
+  const all_selection_data = merge_data(field_selection,final_dataset,'dg_id')
+
+let formatter = new Intl.NumberFormat('en-US', {
+  style: 'currency',
+  currency: 'USD',
+});
+
+  all_selection_data.forEach((item) => {
+    const playerAtRisk = item.make_cut > .5
+    const update_position =  (item.current_position === '' || item.current_position == null && item.player_name != "DATA GOLF CUT" && item.player_name != "PREDICTED CUT") 
+              ? (tournamentStarted ? "WD" : item.effective_rank) 
+              : item.current_position
+    const short_proj_earnings = formatter.format(item.projected_earnings);
+    const update_display_name = `${item.player_name_clean} - ${update_position} (${item.total}), ${short_proj_earnings}`
+      updated_field_selection.push({
+        event_id	: item.event_id || '',
+        event_name	: item.event_name || '',
+        dg_id	: item.dg_id || '',
+        adjusted_rank	: item.adjusted_rank || '',
+        player_name_selection	: item.player_name_selection || '',
+        player_name_clean	: item.player_name_clean || '',
+        selection_group	: item.selection_group || '',
+        last_updated: item.last_updated || '',
+        current_round: item.current_round || '',			
+        update_display_name: update_display_name,
+        current_position: update_position,		
+        total: item.total || 0,				
+        make_cut: item.make_cut || '',		
+        top_20	: item.top_20 || '',	
+        top_10	: item.top_10 || '',	
+        top_5	: item.top_5 || '',	
+        win: item.win || '',
+        effective_rank: item.effective_rank || 500,	
+        is_at_risk: playerAtRisk
+      })
+    })
+
+  console.log(updated_field_selection[0])
+
+    final_dataset = final_dataset.filter(obj => obj.dg_id)
+      final_dataset.sort((a, b) => a.total - b.total); // Sort by score first
+      final_dataset.sort((a, b) => a.effective_rank - b.effective_rank); // Then sort by rank (includes Cut Line placement)
+
+    updated_field_selection = updated_field_selection.filter(obj => obj.dg_id)
+      updated_field_selection.sort((a, b) => a.total - b.total); // Sort by score first
+      updated_field_selection.sort((a, b) => a.effective_rank - b.effective_rank); // Then sort by rank (includes Cut Line placement)
+
+    if (final_dataset.length > 0) {
+      SHT_LIVE_DATA.clearContents(); 
+      setValues_keys(final_dataset, SHT_LIVE_DATA);
+      SHT_FIELD_SELECTION.clearContents(); 
+      setValues_keys(updated_field_selection, SHT_FIELD_SELECTION);
+    }
+  }
+
+  update_pool_leaderboard()
+
+}
+
+
+
+
+
+// -------------------------------------------------------------------------------------------
+
+function calculateGolfWinnings(players, prizeMap, tournamentStarted) {
+  
+  // 1. Identify "Active" real players (those with scores, not WD/CUT)
+  const activeRealPlayers = players.filter(p => 
+    p.player_name !== "DATA GOLF CUT" && 
+    p.player_name !== "PREDICTED CUT" && 
+    p.current_position !== "WD" && 
+    p.current_position !== "CUT" &&
+    p.current_position !== "DQ"
+  );
+
+  // 2. Assign Effective Ranks
+  players.forEach(player => {
+    const isCutLine = (player.player_name === "DATA GOLF CUT" || player.player_name === "PREDICTED CUT");
+    
+    if (isCutLine) {
+      // Logic: Rank = (Count of real players with a better score) + 1
+      // We use a small decimal (+ 0.5) so they sort AFTER players tied at the same score
+      const betterPlayers = activeRealPlayers.filter(p => (p.total || 0) < (player.total || 0)).length;
+      player.effective_rank = betterPlayers + 1.5; 
+      
+    } else {
+      // Standard logic for real players
+      const rawRank = parseInt((player.current_position || '').toString().replace(/[^0-9]/g, ""));
+      const uncut_status = player.current_position;
+
+      if (uncut_status === "CUT" || uncut_status === "WD" || uncut_status === "DQ") {
+        player.effective_rank = 500;
+      } else if (isNaN(rawRank)) {
+        // If pre-tour, use the adjusted rank mapping
+        player.effective_rank = tournamentStarted ? 500 : 999; // Fallback
+      } else {
+        player.effective_rank = rawRank;
+      }
+    }
+  });
+
+  // 3. Count occurrences for TIE LOGIC (EXCLUDING CUT LINES)
+  // We do not want the ghost rows to increment the "Tie Count" for real players
+  const positionCounts = players.reduce((acc, player) => {
+    const isCutLine = (player.player_name === "DATA GOLF CUT" || player.player_name === "PREDICTED CUT");
+    const intRank = Math.floor(player.effective_rank);
+    
+    if (player.effective_rank && !isCutLine && player.effective_rank < 500) {
+      acc[intRank] = (acc[intRank] || 0) + 1;
+    }
+    return acc;
+  }, {});
+
+  // 4. Distribute Winnings
+  players.forEach((player) => {
+    const isCutLine = (player.player_name === "DATA GOLF CUT" || player.player_name === "PREDICTED CUT");
+    
+    // Cut lines and WD players get $0
+    if (isCutLine || !player.effective_rank || player.effective_rank >= 500) {
+      player.projected_earnings = 0;
+      player.earnings = 0;
+      return;
+    }
+
+    const startRank = Math.floor(player.effective_rank);
+    const count = positionCounts[startRank];
+
+    if (count > 1) {
+      // TIE LOGIC
+      let totalTiePool = 0;
+      for (let i = 0; i < count; i++) {
+        totalTiePool += (prizeMap[startRank + i] || 0);
+      }
+      player.projected_earnings = totalTiePool / count;
+    } else {
+      // SOLO LOGIC
+      player.projected_earnings = prizeMap[startRank] || 0;
+    }
+  });
+
+  return players;
+}
+
+function safelyParseDate(dateVal) {
+  if (!dateVal || dateVal === "" || dateVal === "0") return null; 
+  const d = new Date(dateVal);
+  return isNaN(d.getTime()) ? null : d;
+}
+
+// -------------------------------------------------------------------------------------------
+function get_prd_live_event () {
+ 
+  const endpoint = `${SOURCEURL}${ENDPT_PRD_IN_PLAY}?${FILEFORMAT}${API_DG}`;
+
+  console.log(endpoint)
+
+  // --- 1. Fetch Data ---
+  let data;
+  const std_dataset = [];
+  try {
+    const response = UrlFetchApp.fetch(endpoint, { muteHttpExceptions: true });
+    if (response.getResponseCode() !== 200) {
+      throw new Error(`HTTP Error ${response.getResponseCode()}`);
+    }
+    
+    data = JSON.parse(response.getContentText());
+    const dataset = data.data
+    
+    dataset.forEach((item) => {
+      std_dataset.push({
+          current_round: data.info?.current_round ?? '',
+          event_name: data.info?.event_name ?? '',
+          dg_id: item?.dg_id ?? '',
+          player_name: item?.player_name ?? '',
+          player_name_clean: swapNameOrder(item?.player_name) ?? '',
+          country: item?.country ?? '',
+          current_position: item?.current_pos ?? '',
+          total: item?.current_score ?? '',
+          round: item?.round ?? '',
+          R1: item?.R1 ?? '',
+          R2: item?.R2 ?? '',
+          R3: item?.R3 ?? '',
+          R4: item?.R4 ?? '',
+          thru: item?.thru ?? '',
+          today: item?.today ?? '',
+          end_hole: item?.end_hole ?? '',
+          course_code: item?.course ?? '',
+          make_cut: item?.make_cut ?? '',
+          top_20: item?.top_20 ?? '',
+          top_10: item?.top_10 ?? '',
+          top_5: item?.top_5 ?? '',
+          win: item?.win ?? '',
+          last_updated: data.info?.last_update ?? '',
+
+        });
+    })
+
+    return std_dataset
+
+  } catch (e) {
+    console.log(`Failed to fetch DataGolf in play data: ${e.message}`);
+    return;
+  }
+
+}
+
+
+// -------------------------------------------------------------------------------------------
+function get_prd_live_tour_stats () {
+
+    const api_params = {
+    stats: "sg_putt,sg_arg,sg_app,sg_ott,sg_t2g,sg_bs,sg_total,distance,accuracy,gir,prox_fw, prox_rgh,scrambling,great_shots,poor_shots",
+    round: 'event_avg',
+    display: 'rank'
+  }
+
+  const queryParams = Object.entries(api_params)
+    .map(([key, value]) => `${key}=${value}`)
+    .join('&');
+
+  const endpoint = `${SOURCEURL}${ENDPT_PRD_LIVE_TOUR}?${queryParams}&${FILEFORMAT}${API_DG}`;
+
+  // --- 1. Fetch Data ---
+  let data;
+  const std_dataset = [];
+  
+  try {
+    const response = UrlFetchApp.fetch(endpoint, { muteHttpExceptions: true });
+    if (response.getResponseCode() !== 200) {
+      throw new Error(`HTTP Error ${response.getResponseCode()}`);
+    }
+  
+    data = JSON.parse(response.getContentText());
+    const dataset = data.live_stats
+  
+    dataset.forEach((item) => {
+      std_dataset.push({
+        course_name: data?.course_name ?? '',
+        event_name: data?.event_name ?? '',
+        dg_id: item?.dg_id ?? '',
+        player_name: item?.player_name ?? '',
+        player_name_clean: swapNameOrder(item?.player_name) ?? '',
+        current_position: item?.position ?? '',
+        thru: item?.thru ?? '',
+        total: item?.total ?? '', 
+        today: item?.today ?? '',
+        distance: item?.distance ?? '',
+        accuracy: item?.accuracy ?? '',
+        gir: item?.gir ?? '',
+        prox_fw: item?.prox_fw ?? '',
+        scrambling: item?.scrambling ?? '',
+        prox_rgh: item?.prox_rgh ?? '',
+        great_shots: item?.great_shots ?? '',
+        poor_shots: item?.poor_shots ?? '',
+        sg_putt: item?.sg_putt ?? '',
+        sg_arg: item?.sg_arg ?? '',
+        sg_ott: item?.sg_ott ?? '',
+        sg_t2g: item?.sg_t2g ?? '',
+        sg_bs: item?.sg_bs ?? '',
+        sg_total: item?.sg_total ?? '',
+        stat_display: data?.stat_display ?? '',
+        stat_round: data?.stat_round ?? '',
+        last_updated: data.last_updated ?? '',
+      })
+    })
+
+    return std_dataset
+
+  } catch (e) {
+    console.log(`Failed to fetch DataGolf rankings: ${e.message}`);
+    return;
+  }
+
+
+  // --- 2. Process Data ---
+  //SHT_PRD_LIVE_TOUR.clearContents()
+  //setValues_keys(std_dataset,SHT_PRD_LIVE_TOUR)
+
+}
+
+// -------------------------------------------------------------------------------------------
+function dg_get_prd_live_hole () {
+
+  const endpoint = `${SOURCEURL}${ENDPT_PRD_LIVE_HOLE}?${FILEFORMAT}${API_DG}`;
+
+  console.log(endpoint)
+
+  // --- 1. Fetch Data ---
+  let data;
+  const std_dataset = [];
+  try {
+    const response = UrlFetchApp.fetch(endpoint, { muteHttpExceptions: true });
+    if (response.getResponseCode() !== 200) {
+      throw new Error(`HTTP Error ${response.getResponseCode()}`);
+    }
+    data = JSON.parse(response.getContentText());
+    const course_data = data?.courses
+
+  course_data.forEach((course) => {
+    const rounds = course.rounds
+
+    rounds.forEach((round) => {
+      const holes = round.holes
+
+      holes.forEach((hole) => {
+        std_dataset.push({
+          event_name: data.event_name ?? '',
+          current_round: data.current_round ?? '',
+          last_updated: data.last_update,
+          course_code: course.course_code ?? '',
+          course_key: course.course_key ?? '',
+          round_num: round.round_num ?? '',        
+          hole_number: hole?.hole ?? '',
+          par: hole?.par ?? 0,
+          yardage: hole?.yardage ?? 0,
+          monrning_avg_score: hole?.morning_wave?.avg_score ?? 0,
+          monrning_birdies: hole?.morning_wave?.birdies ?? 0,
+          monrning_bogeyse: hole?.morning_wave?.bogeys ?? 0,
+          monrning_doubles_or_worse: hole?.morning_wave?.doubles_or_worse ?? 0,
+          monrning_eagles_or_better: hole?.morning_wave?.eagles_or_better ?? 0,
+          monrning_pars: hole?.morning_wave?.pars ?? 0,
+          monrning_players_thru: hole?.morning_wave?.players_thru ?? 0,
+          afternoon_avg_score: hole?.afternoon_wave?.avg_score ?? 0,
+          afternoon_birdies: hole?.afternoon_wave?.birdies ?? 0,
+          afternoon_bogeyse: hole?.afternoon_wave?.bogeys ?? 0,
+          afternoon_doubles_or_worse: hole?.afternoon_wave?.doubles_or_worse ?? 0,
+          afternoon_eagles_or_better: hole?.afternoon_wave?.eagles_or_better ?? 0,
+          afternoon_pars: hole?.afternoon_wave?.pars ?? 0,
+          afternoon_players_thru: hole?.afternoon_wave?.players_thru ?? 0,
+          total_avg_score: hole?.total?.avg_score ?? 0,
+          total_birdies: hole?.total?.birdies ?? 0,
+          total_bogeyse: hole?.total?.bogeys ?? 0,
+          total_doubles_or_worse: hole?.total?.doubles_or_worse ?? 0,
+          total_eagles_or_better: hole?.total?.eagles_or_better ?? 0,
+          total_pars: hole?.total?.pars ?? 0,
+          total_players_thru: hole?.total?.players_thru ?? 0,
+
+        })
+      })
+    })
+  })
+
+  //return std_dataset
+
+  //SHT_LIVE_HOLE.clearContents()
+  if (std_dataset.length > 0) {
+    SHT_LIVE_HOLE.clearContents()
+    setValues_keys(std_dataset, SHT_LIVE_HOLE);
+    console.log(`Successfully updated live data with ${std_dataset.length} events.`);
+  }
+
+  } catch (e) {
+    console.log(`Failed to fetch DataGolf rankings: ${e.message}`);
+    return;
+  }
+
+}
+
+// -------------------------------------------------------------------------------------------
+function update_pool_leaderboard() {
+  const current_event = readSheetData(CURRENT_TOURNAMENT);
+    if (!current_event) return;
+
+  const event_id = String(current_event[0].event_id)
+  const isPoolEvent = current_event[0].isPoolEvent;
+  const tournamentStarted = new Date() >= new Date(current_event[0].adj_start_date);
+
+  const user_selection_data = readSheetData(SHT_UPDATE_USER_SELECTIONS);
+
+  const filt_user_selection_data = user_selection_data.filter(item => 
+      String(item.event_id) === String(event_id)
+    );
+    if (filt_user_selection_data.length === 0) {
+    console.log("No user selections found for Event ID: " + event_id + ". Exiting.");
+    return;
+  }
+
+  const player_live_data = readSheetData(SHT_LIVE_DATA);
+    const live_proj_earn_sum = sumField(player_live_data, 'projected_earnings');
+    const earnings_sum = sumField(player_live_data, 'earnings');
+
+  const field_selection = readSheetData(SHT_FIELD_SELECTION);
+  let all_players = merge_data(field_selection,player_live_data,'dg_id') 
+
+    const playerLiveMap = new Map();
+    all_players.forEach(playerObj => {
+     const dg_id = String(playerObj.dg_id);
+        if (dg_id) {
+          const player = {
+            dg_id: String(playerObj.dg_id),
+            player_name_clean: playerObj.player_name_clean,
+            earnings: playerObj.earnings || 0,
+            projected_earnings: playerObj.projected_earnings || 0,
+            position: (playerObj.current_position === '' || playerObj.current_position == null) 
+            ? (tournamentStarted ? "WD" : playerObj.adjusted_rank) 
+            : playerObj.current_position,
+            thru: playerObj.thru || '',
+            current_score: playerObj.total || 'E',     
+          };
+        playerLiveMap.set(dg_id, player);
+    }
+  });
+
+  // 3. Flatten User Selections into "One Row Per Player"
+  const flattenedUserSelections = [];
+  
+  filt_user_selection_data.forEach(row => {
+    // Base info shared by all player rows for this user
+    const base = {
+      key: row.key,
+      user_name: row.user_name, // Fallback check
+      event_name: row.event_name,
+      break_s1: '',
+      break_s2: '',
+      break_s3: '',
+      break_liv: '',
+      break_a1: '',
+      break_a2: '',
+      break_liv_a: '',
+    };
+
+// Mapping of slot types to the row properties
+    const slots = [
+      { type: 's1', id: row.dg_id_s1, sub: row.S1_SUB },
+      { type: 's2', id: row.dg_id_s2, sub: row.S2_SUB },
+      { type: 's3', id: row.dg_id_s3, sub: row.S3_SUB },
+      { type: 'liv', id: row.dg_id_liv, sub: row.LIV_SUB },
+      { type: 'a1', id: row.dg_id_a1, sub: row.A1_S_SWAP ? 'Yes' : 'No' },
+      { type: 'a2', id: row.dg_id_a2, sub: row.A2_S_SWAP ? 'Yes' : 'No' },
+      { type: 'liv_a', id: row.dg_id_liv_a, sub: row.LIV_SUB }
+    ];
+
+slots.forEach(slot => {
+      if (slot.id) {
+        flattenedUserSelections.push({
+          ...base,
+          type: slot.type,
+          sub: slot.sub === 'Yes' ? 'Yes' : '',
+          dg_id: String(slot.id)
+        });
+      }
+    });
+  });
+
+  const mergedData = flattenedUserSelections.map(item => {
+    const live_data = playerLiveMap.get(item.dg_id) || {};
+
+    let earn_flag = '';
+    let earnings = 0;
+
+    if( earnings_sum > 0 && live_proj_earn_sum >= 0 && isPoolEvent) { // checking final_earnings
+        earnings = live_data.earnings;
+        earn_flag = 'final';
+    } else if (earnings_sum > 0 && live_proj_earn_sum >= 0 && !isPoolEvent) {
+        earnings = live_data.earnings;
+        earn_flag = 'final_non_pool';
+      } else if (earnings_sum === 0 && live_proj_earn_sum > 0) {
+        earnings = live_data.projected_earnings;
+        earn_flag = 'projected_earnings';
+      } else  {
+        earnings = 0;
+        earn_flag = '';
+      } 
+   
+    const rank_score_thru = `${live_data.player_name_clean} - ${live_data.position ?? live_data.adjusted_rank} | ${live_data.current_score} (${live_data.thru})`
+    const rank_score_pre_tour = `${live_data.player_name_clean} - Scheduled`
+
+    return {
+      ...item,
+      player_name_clean: live_data.player_name_clean,
+      position: live_data.position ?? live_data.adjusted_rank,
+      thru: live_data.thru ?? 0,
+      score: live_data.current_score || '',
+      earnings: earnings || 0,
+      earn_flag: earn_flag ?? "",
+      isPoolEvent: isPoolEvent ?? 'false',
+      
+      // Logic: If WD, show WD. If waiting, check if tourney started. Otherwise, show rank/score/thru.
+      rank_score_thru: (live_data.position === 'WD') 
+        ? (live_data.player_name_clean + " - WD") 
+        : (live_data.position === '' || live_data.position === 'WAITING')
+          ? (tournamentStarted ? rank_score_pre_tour : "Waiting to Start")
+          : rank_score_thru
+    };
+  });
+
+// 5. Pivot and Sort
+  const processed = processData(mergedData);
+  const finalOutput = flattenData_v2(processed);
+
+  // 6. Write Output
+  const header_pool = [
+    'key',
+    'event_name',
+    'Rank',
+    'Name',
+    'Total Winnings',
+    'earn_flag',
+        'break_s1',
+    'break_s2',
+    'break_s3',
+    'break_liv',
+    'break_a1',
+    'break_a2',
+    'break_liv_a',
+    'dg_id_s1',
+    'S1 Sub',
+    'S1 Rank',
+    'S1 Player Name',
+    'S1 Thru',
+    'S1 Score',
+    'S1 Earnings',
+    'S1 Player: Rank/Score - Thru',
+    'dg_id_s2',
+    'S2 Sub',
+    'S2 Rank',
+    'S2 Player Name',
+    'S2 Thru',
+    'S2 Score',
+    'S2 Earnings',
+    'S2 Player: Rank/Score - Thru',
+    'dg_id_s3',
+    'S3 Sub',
+    'S3 Rank',
+    'S3 Player Name',
+    'S3 Thru',
+    'S3 Score',
+    'S3 Earnings',
+    'S3 Player: Rank/Score - Thru',
+    'dg_id_liv',
+    'LIV Sub',
+    'LIV Rank',
+    'LIV Player Name',
+    'LIV Thru',
+    'LIV Score',
+    'LIV Earnings',
+    'LIV Player: Rank/Score - Thru',
+    'dg_id_a1',
+    'Alt1 Sub',
+    'Alt1 Rank',
+    'Alt1 Player Name',
+    'Alt1 Thru',
+    'Alt1 Score',
+    'Alt1 Earnings',
+    'Alt. 1 Player: Rank/Score - Thru',
+    'dg_id_a2',
+    'Alt2 Sub',
+    'Alt2 Rank',
+    'Alt2 Player Name',
+    'Alt2 Thru',
+    'Alt2 Score',
+    'Alt2 Earnings',
+    'Alt. 2 Player: Rank/Score - Thru',
+    'dg_id_liv_a',
+    'Alt LIV Sub',
+    'Alt LIV Rank',
+    'Alt LIV Player Name',
+    'ALT LIV Thru',
+    'ALT LIV  Score',
+    'ALT LIV Earnings',
+    'Alt. Liv Player: Rank/Score - Thru',
+
+    ];
+
+  // --- 5. Write Output to a New Sheet ---
+
+  SHT_LEADERBOARD.clearContents();
+  setValues(finalOutput, SHT_LEADERBOARD, header_pool);
+
+  create_updated_selections();
+
+
+  if (finalOutput[0].earn_flag === 'final') {
+    update_detailed_results_history(finalOutput)
+  } 
+
+}
+
+// --- : Pool Leaderboard ---
+// ----------------------------------------------------------------------------------
+
+function processData(rawData) {
+  const userMap = [];
+  const EARNINGS_TYPES = ['s1', 's2', 's3', 'liv'];
+
+  rawData.forEach(row => {
+    const key = row.key;
+    if (!userMap[key]) {
+      userMap[key] = {
+        key: row.key,
+        user_name: row.user_name,
+        event_name: row.event_name,
+        totalEarnings: 0,
+        earn_flag: row.earn_flag,
+        break_s1: '',
+        break_s2: '',
+        break_s3: '',
+        break_liv: '',
+        break_a1: '',
+        break_a2: '',
+        break_liv_a: '',
+        data: {}
+      };
+    }
+
+    if (EARNINGS_TYPES.includes(row.type)) {
+      userMap[key].totalEarnings += parseFloat(row.earnings || 0);
+    }
+
+    userMap[key].data[row.type] = {
+      id: String(row.dg_id),
+      sub: row.sub,
+      pos: row.position,
+      name: row.player_name_clean,
+      thru: row.thru,
+      score: row.score || 0,
+      earn: row.earnings,
+      rank_score_thru: row.rank_score_thru
+    };
+  });
+
+  return Object.values(userMap);
+}
+// ----------------------------------------------------------------------------------
+
+function flattenData_v2(data) {
+  data.sort((a, b) => b.totalEarnings - a.totalEarnings);
+
+  // Assign Ranks
+  data.forEach((user, i) => {
+    if (i > 0 && user.totalEarnings === data[i - 1].totalEarnings) {
+      user.rank = data[i - 1].rank;
+    } else {
+      user.rank = i + 1;
+    }
+  });
+
+ const finalData = [];
+
+  data.forEach(user => {
+
+    const row = [
+      user.key, 
+      user.event_name, 
+      user.rank, 
+      user.user_name, 
+      user.totalEarnings,
+      user.earn_flag,
+      user.header_s1,
+      user.header_s2,
+      user.header_s3,
+      user.header_liv,
+      user.header_a1,
+      user.header_a2,
+      user.header_liv_a,
+    ];
+
+  // selections    
+    const select_details = user.data; 
+    const types = ['s1', 's2', 's3', 'liv', 'a1', 'a2', 'liv_a'];
+    // data for selections  
+    
+    types.forEach(type => {
+      const typeData = select_details[type] ||{};
+      row.push(
+        typeData.id || '',
+        typeData.sub || '',
+        typeData.pos || '',
+        typeData.name || '',
+        typeData.thru || '',
+        typeData.score || 0,
+        typeData.earn || 0,
+        typeData.rank_score_thru
+      );
+    })
+
+  finalData.push(row)
+  });
+
+  return finalData
+}
+
+// _____________________________________________
+
+function cleanValue(value) {
+  if (!value || typeof value !== 'string') return value;
+  
+  // This regex looks for digits followed by a hyphen and space at the start
+  // or simply splits by the first hyphen if found.
+  if (value.includes(' - ')) {
+    return value.split(' - ').slice(1).join(' - ').trim();
+  }
+  return value.trim();
+}
+
+function sumField(array, field) {
+
+  if (!Array.isArray(array)) {
+    throw new Error("First argument must be an array");
+  }
+
+  return array.reduce((total, obj) => {
+    // Ensure the field exists and is a number
+    const value = Number(obj[field]);
+    return total + (isNaN(value) ? 0 : value);
+  }, 0);
+
+}
+
+//------------------------------------------------------------------------------------
+
+function update_detailed_results_history(leaderboardData) {
+  console.log('Updating leaderboard detailed results');
+  
+  // Convert array back to objects using your headers if needed, 
+  // or pass objects directly from the previous function.
+  const leaderboard = leaderboardData; 
+
+  if (!leaderboard || leaderboard.length === 0) {
+      console.log('Leaderboard Blank');
+      return; 
+  } 
+
+  const user_detailed_results = global.readSheetData(SHT_USER_RESULTS);
+  const merge = merge_results(user_detailed_results, leaderboard);
+
+  SHT_USER_RESULTS.clearContents();
+  global.setValues_keys(merge, SHT_USER_RESULTS);
+}
+
+
+
+// -------------------------------------------------------------------------------------------
+function create_updated_selections() {
+	const user_selection_data = readSheetData(SHT_USER_SELECTION)
+  const std_dataset = [];
+
+  user_selection_data.forEach((row) => {
+    let s1_sub = "No", s2_sub = "No", s3_sub = "No", liv_sub = "No";
+    let a1s_sub = "", a2s_sub = "";
+
+    // --- INITIALIZE CURRENT STATE ---
+    // Start with the original data for this row
+    let lineup = {
+      s1: { id: cleanValue(row.s1)},
+      s2: { id: cleanValue(row.s2)},
+      s3: { id: cleanValue(row.s3)},
+      liv: { id: cleanValue(row.liv)},
+      a1: { id: cleanValue(row.a1)},
+      a2: { id: cleanValue(row.a2)},
+      aliv: { id: cleanValue(row.altLiv)}
+    };
+
+    // --- DEFINE THE SWAP FUNCTION ---
+    const executeTrueSwap = (updatedKey, starterKey, slotLabel) => {
+      const updatedValClean = cleanValue(row[updatedKey]);
+      const currentStarterClean = lineup[starterKey].id;
+
+      if (updatedValClean && updatedValClean !== currentStarterClean) {
+        
+        let altSlotMatch = null;
+        if (lineup.a1.id === updatedValClean) altSlotMatch = 'a1';
+        else if (lineup.a2.id === updatedValClean) altSlotMatch = 'a2';
+        else if (lineup.aliv.id === updatedValClean) altSlotMatch = 'aliv';
+
+        if (altSlotMatch) {
+          // Perform the Swap
+          let tempStarter = { ...lineup[starterKey] };
+          lineup[starterKey] = { ...lineup[altSlotMatch] }; // Alt moves to Starter
+          lineup[altSlotMatch] = tempStarter;              // Starter moves to Alt
+
+          // Update UI/Metadata Flags
+          if (starterKey === 's1') s1_sub = "Yes";
+          if (starterKey === 's2') s2_sub = "Yes";
+          if (starterKey === 's3') s3_sub = "Yes";
+          if (starterKey === 'liv') liv_sub = "Yes";
+          if (altSlotMatch === 'a1') a1s_sub = slotLabel;
+          if (altSlotMatch === 'a2') a2s_sub = slotLabel;
+        }
+      }
+    };
+
+    executeTrueSwap('updated_s1', 's1', 'S1');
+    executeTrueSwap('updated_s2', 's2', 'S2');
+    executeTrueSwap('updated_s3', 's3', 'S3');
+    executeTrueSwap('updated_liv', 'liv', 'LIV');
+
+    std_dataset.push({
+      key: row.key, 
+      year: row.year,
+      event_id: row.event_id,
+      event_name: row.event_name, 
+      user_name: row.user_name, 
+      user_email: row.user_email, 
+      S1_SUB: s1_sub, 
+      S2_SUB: s2_sub, 
+      S3_SUB: s3_sub, 
+      LIV_SUB: liv_sub, 
+      A1_S_SWAP: a1s_sub, 
+      A2_S_SWAP: a2s_sub, 
+      dg_id_s1: lineup.s1.id ?? '',	
+      dg_id_s2: lineup.s2.id ?? '',	
+      dg_id_s3: lineup.s3.id ?? '',
+      dg_id_liv: lineup.liv.id ?? '',
+      dg_id_a1: lineup.a1.id ?? '',	
+      dg_id_a2: lineup.a2.id ?? '',	
+      dg_id_liv_a: lineup.aliv.id ?? '',
+    })
+  });
+
+
+  // 3. Write Data
+  if (std_dataset.length > 0) {
+    SHT_UPDATE_USER_SELECTIONS.clearContents();
+    setValues_keys(std_dataset,SHT_UPDATE_USER_SELECTIONS)
+    //const range = SHT_UPDATE_USER_SELECTIONS.getRange(1, 1, finalOutputArray.length, finalOutputArray[0].length);
+    //range.setValues(finalOutputArray);
+  }
+}
+
+// -------------------------------------------------------------------------------------------
