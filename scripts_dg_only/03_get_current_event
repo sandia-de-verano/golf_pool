@@ -1,0 +1,122 @@
+function get_current_event() {
+  const field = readSheetData(SHT_FIELD);
+  const schedule = readSheetData(SHT_CALENDAR);
+
+  let next_event = schedule
+    .filter(obj => obj.tournament_timing === 'Next' && obj.tour === 'PGA')
+    .sort((a, b) => new Date(a.start_date) - new Date(b.start_date));
+
+  let current_event = schedule
+    .filter(obj => obj.tournament_timing === 'Current' && obj.tour === 'PGA')
+    .sort((a, b) => new Date(a.start_date) - new Date(b.start_date));
+
+  let start_date = new Date(field[0].start_date);
+  let end_date = new Date(field[0].end_date);
+
+  let event, course_key
+  if (current_event.length === 0) {
+    event = next_event[0];
+    course_key = next_event[0].course_key;
+  } else {
+    event = current_event[0]
+    course_key = current_event[0].course_key;
+  }
+
+  const processed_field = field.map(row => {
+  //const isPlayerLive = row.dg_id && row.dg_id !== "" && row.dg_id !== "NOT_LINKED";
+
+  return {
+    ...row,
+    r1_teetime: row.r1_teetime ?? null,
+    r2_teetime: row.r2_teetime ?? null,
+    r3_teetime: row.r3_teetime ?? null,
+    r4_teetime: row.r4_teetime ?? null,
+  };
+  });
+
+
+  // Now perform your min/max calculation on the PROCESSED data
+  const tee_times_flat = processed_field
+    .flatMap(row => [row.r1_teetime, row.r2_teetime, row.r3_teetime, row.r4_teetime])
+    .filter(val => val && val !== "") // This will now naturally ignore the nulls
+    .map(val => new Date(val).getTime());
+
+  const hasTeeTimes = tee_times_flat.length > 0;
+  const early_min = hasTeeTimes ? tee_times_flat.reduce((min, cur) => Math.min(min, cur), Infinity) : null;
+  const late_max = hasTeeTimes ? tee_times_flat.reduce((max, cur) => Math.max(max, cur), -Infinity) : null;
+
+  let adj_start_date, adj_end_date;
+
+  if (hasTeeTimes) {
+    const live_start = new Date(early_min);
+    const live_end = new Date(late_max) + 21600000;
+    adj_start_date = Math.abs(live_start - start_date) > 3600000 ? live_start : start_date;
+    adj_end_date = live_end > end_date ? live_end : end_date;
+  } else {
+    adj_start_date = start_date;
+    adj_end_date =  end_date;
+  }
+
+  let end_date_final = new Date(adj_end_date);
+    end_date_final.setHours(end_date_final.getHours() + 2); 
+
+  let pool_opens = new Date(adj_start_date);
+    pool_opens.setDate(pool_opens.getDate() - 3);
+    pool_opens.setHours(07,0,0,0);
+
+    let picks_due = new Date(adj_start_date);
+    let picks_due_notification = new Date(adj_start_date);
+      picks_due_notification.setDate(picks_due_notification.getDate() - 1);
+      picks_due_notification.setHours(0,0,0,0);
+
+    let updates_due = new Date(adj_start_date);
+      updates_due.setDate(updates_due.getDate() + 2);
+    let updates_due_notification = new Date(updates_due);
+      updates_due_notification.setDate(updates_due_notification.getDate() - 1);
+      updates_due_notification.setHours(0,0,0,0);
+
+    let results_notification = new Date(end_date_final);
+      results_notification.setHours(results_notification.getHours() + 1); 
+
+  start_date = formatDateTimeSafe(start_date);
+  end_date = formatDateTimeSafe(end_date);
+  adj_start_date = formatDateTimeSafe(adj_start_date);
+  adj_end_date = formatDateTimeSafe(adj_end_date);
+  end_date_final = formatDateTimeSafe(end_date_final);
+  pool_opens = formatDateTimeSafe(pool_opens);
+  picks_due = formatDateTimeSafe(picks_due);
+  picks_due_notification = formatDateTimeSafe(picks_due_notification);
+  updates_due = formatDateTimeSafe(updates_due);
+  updates_due_notification = formatDateTimeSafe(updates_due_notification);
+  results_notification = formatDateTimeSafe(results_notification);
+
+  let std_dataset = [];
+
+  std_dataset.push({
+    tour: field[0].tour,
+    event_id: field[0].event_id,
+    event_name: field[0].event_name,
+    course_key: course_key,
+    year: event.year,
+    start_date: start_date,
+    end_date: end_date,
+    adj_start_date: adj_start_date,
+    adj_end_date: adj_end_date,
+    end_date_final: end_date_final,
+    pool_opens: pool_opens,
+    picks_due: picks_due,
+    picks_due_notification: picks_due_notification,
+    updates_due: updates_due,
+    updates_due_notification: updates_due_notification,
+    results_notification: results_notification,
+    is_pool_event: event.is_pool_event
+  });
+
+
+    if (std_dataset.length > 0) {
+      CURRENT_TOURNAMENT.clearContents(); 
+      setValues_keys(std_dataset, CURRENT_TOURNAMENT);
+    }
+
+}
+
