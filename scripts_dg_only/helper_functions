@@ -1,0 +1,551 @@
+function setupSheet(ss, sheetName) {
+  let sheet = ss.getSheetByName(sheetName);
+  if (!sheet) {
+    sheet = ss.insertSheet(sheetName);
+    console.log(`Created new sheet: ${sheetName}`);
+  }
+  return sheet;
+}
+
+// ------------------------------------------------------------------------------
+
+function setValues_keys(dataset, targetSheet) {
+try {
+  if (!dataset || dataset.length === 0) {
+    console.log('JSON array is empty.');
+    return;
+  }
+
+  const target_row = targetSheet.getLastRow() + 1;
+  const s_num_col = targetSheet.getLastColumn();
+
+  const flattenedData = dataset.map(item => flattenObject(item));
+
+  let headers = new Set();
+  flattenedData.forEach(item => {
+    Object.keys(item).forEach(key => headers.add(key));
+  });
+  
+  headers = Array.from(headers);
+
+  // 3. Convert the flattened objects into a 2D array for setValues()
+  const rows = flattenedData.map(item => {
+    return headers.map(header => (item.hasOwnProperty(header) ? item[header] : ''));
+  });
+
+  // Add the headers as the first row
+  if (target_row === 1 || target_row === null  || target_row === undefined){
+    rows.unshift(headers);
+  } 
+
+  // 4. Batch Write to the Sheet
+  const numRows = rows.length;
+  const numCols = headers.length;
+
+  if (s_num_col != numCols && s_num_col > 0) {
+    console.log('Number of colums in sheet does not match the number of columns in the data. Please check.')
+    return
+  }
+  
+  // Clear existing content and set new data efficiently
+  const targetRange = targetSheet.getRange(target_row, 1, numRows, numCols);
+  targetRange.setValues(rows);
+
+  console.log(`Successfully wrote ${numRows} rows and ${numCols} columns to the sheet.`);
+} catch (e) {
+  console.log(`[ERROR] setValues_keys: ${e.message} at line ${e.lineNumber}`);
+}
+
+}
+
+// ------------------------------------------------------------------------------
+
+function setValues(dataset,targetSheet,headers) {
+  const outputArray = [];
+    outputArray.push(headers);
+    outputArray.push(...dataset);
+  try {
+    // Determine the target range size
+    const numRows = outputArray.length;
+    const numCols = outputArray[0].length;
+
+    const lastRow = targetSheet.getLastRow();
+    const lastCol = targetSheet.getLastColumn();
+    const targetRange = targetSheet.getRange(lastRow+1, 1, numRows, numCols);
+    
+    // setValues() is the fastest way to write data to a sheet.
+    targetRange.setValues(outputArray);
+
+    targetSheet.getRange(1, 1, 1, numCols).setFontWeight('bold');
+
+    console.log("Successfully pushed %s rows and %s columns to the sheet.", numRows - 1, numCols);
+    
+  } catch (e) {
+    console.log("Error in setValues: %s", e.toString());
+  }
+
+}
+
+// ------------------------------------------------------------------------------
+
+function flattenObject(obj, parentKey = '', separator = '_') {
+  const flattened = {};
+
+  for (const key in obj) {
+    if (!obj.hasOwnProperty(key)) continue;
+
+    const value = obj[key];
+    // Create the new key name: parentKey + separator + key
+    const newKey = parentKey ? `${parentKey}${separator}${key}` : key;
+
+    // Check if the value is an object (but not null or an Array)
+    if (typeof value === 'object' && value !== null && !Array.isArray(value)) {
+      // Recursively flatten nested objects
+      Object.assign(flattened, flattenObject(value, newKey, separator));
+    } else if (Array.isArray(value)) {
+      // Handle arrays: flatten each element and prepend the new key
+      value.forEach((element, index) => {
+        const arrayKey = `${newKey}${separator}${index}`;
+        if (typeof element === 'object' && element !== null) {
+          Object.assign(flattened, flattenObject(element, arrayKey, separator));
+        } else {
+          flattened[arrayKey] = element;
+        }
+      });
+    } else {
+      flattened[newKey] = value;
+    }
+  }
+  return flattened;
+}
+
+// ------------------------------------------------------------------------------
+
+function swapNameOrder(fullName) {
+  // Check if the input is a string and contains a comma separator
+  if (typeof fullName !== 'string' || !fullName.includes(',')) {
+    // If not in the expected format (no comma), return the original input
+    return fullName;
+  }
+
+  // 1. Split the string at ALL commas. 
+  // Example: "Smith, John, Jr." -> ["Smith", " John", " Jr."]
+  var parts = fullName.split(',');
+
+  // The function requires at least two parts (Last Name and First Name)
+  if (parts.length < 2) {
+    return fullName;
+  }
+  
+  // 2. The Last Name is always the first part (and we remove it from the array).
+  //    .shift() removes the first element and returns it. We trim() to clean spaces.
+  var lastName = parts.shift().trim(); 
+
+  // 3. Trim all remaining parts (First Name, Middle Name, Suffix, etc.)
+  //    .map() creates a new array where all elements have been trimmed.
+  var remainingParts = parts.map(function(part) {
+    return part.trim();
+  });
+  // Example: [" John", " Jr."] becomes ["John", "Jr."]
+
+  // 4. Join the remaining parts back together with a single space separator.
+  var firstNameAndOtherNames = remainingParts.join(' '); 
+  // Example: "John Jr."
+
+  // 5. Recombine them in the desired order: "First Name Other Names Last Name"
+  var newName = firstNameAndOtherNames + ' ' + lastName;
+  
+  return newName;
+}
+
+// ------------------------------------------------------------------------------
+
+function transformPlayerString(input) {
+  // Regex Breakdown:
+  // ^([^,]+)    -> Capture everything from start until the comma (Last Name)
+  // ,\s* -> Match the comma and any following spaces
+  // ([^(]+)     -> Capture everything until the opening parenthesis (First Name)
+  // \s*\(       -> Match spaces and the opening parenthesis
+  // (\d+)       -> Capture only the digits inside (The ID)
+  // \)$         -> Match the closing parenthesis at the end
+
+  if (!input || typeof input !== 'string') return null;
+  
+  const cleanInput = input.trim();
+
+  // 1. SKIP "TBD" (Case-insensitive check)
+  if (cleanInput.toUpperCase() === "TBD" || cleanInput === "" ) {
+    return null
+  }
+
+  // 2. REGEX for "Last, First (ID)"
+  const regex = /^([^,]+),\s*([^(]+)\s*\((\d+)\)$/;
+  const match = cleanInput.match(regex);
+
+  if (match) {
+    return {
+      dg_id: match[3],
+      player_name: `${match[2].trim()} ${match[1].trim()}`
+    };
+  }
+
+  return null
+}
+
+// ------------------------------------------------------------------------------
+
+function merge_data(primary, secondary, joinKey) {
+  if (!Array.isArray(primary) || !Array.isArray(secondary)) {
+    throw new TypeError("Both inputs must be arrays.");
+  }
+
+  // 1. Create a Map of the secondary data for instant lookups
+  const secondaryMap = new Map();
+  secondary.forEach(obj => {
+    const id = obj?.[joinKey];
+    if (id !== undefined && id !== null) {
+      secondaryMap.set(String(id), obj);
+    }
+  });
+
+  // 2. Map over the primary array and merge data if a match exists
+  return primary.map(baseObj => {
+    const id = String(baseObj?.[joinKey]);
+    const updateData = secondaryMap.get(id);
+    
+    if (updateData) {
+      return { ...baseObj, ...updateData };
+    }
+    return baseObj;
+  });
+}
+
+// ------------------------------------------------------------------------------
+
+function merge_full_outer(primary, secondary, joinKey) {
+  const secondaryMap = new Map();
+  const usedSecondaryIds = new Set();
+
+  // 1. Index the secondary array for fast lookup
+  secondary.forEach(obj => {
+    const id = String(obj?.[joinKey] || "");
+    if (id) secondaryMap.set(id, obj);
+  });
+
+  // 2. Process Primary: Merge matches and keep non-matches
+  const mergedPrimary = primary.map(baseObj => {
+    const id = String(baseObj?.[joinKey] || "");
+    const match = secondaryMap.get(id);
+
+    if (match) {
+      usedSecondaryIds.add(id); // Mark as "kept"
+      return { ...baseObj, ...match }; // Merge
+    }
+    return baseObj; // Keep primary row as is
+  });
+
+  // 3. Collect "Right-Side Only" (rows in secondary but not primary)
+  const secondaryOnly = secondary.filter(obj => {
+    const id = String(obj?.[joinKey] || "");
+    return !usedSecondaryIds.has(id);
+  });
+
+  // 4. Combine both results into one final array
+  return [...mergedPrimary, ...secondaryOnly];
+}
+
+// ------------------------------------------------------------------------------
+
+function merge_remaining(primary, secondary, joinKey) {
+  const secondaryMap = new Map();
+  const usedSecondaryIds = new Set();
+
+  // 1. Index the secondary array for fast lookup
+  secondary.forEach(obj => {
+    const id = String(obj?.[joinKey] || "");
+    if (id) secondaryMap.set(id, obj);
+  });
+
+  // 2. Process Primary: Merge matches and keep non-matches
+  const mergedPrimary = primary.map(baseObj => {
+    const id = String(baseObj?.[joinKey] || "");
+    const match = secondaryMap.get(id);
+
+    if (match) {
+      usedSecondaryIds.add(id); // Mark as "kept"
+      return { ...baseObj, ...match }; // Merge
+    }
+    return baseObj; // Keep primary row as is
+  });
+
+  // 3. Collect "Right-Side Only" (rows in secondary but not primary)
+  const secondaryOnly = secondary.filter(obj => {
+    const id = String(obj?.[joinKey] || "");
+    return !usedSecondaryIds.has(id);
+  });
+
+  // 4. Combine both results into one final array
+  return secondaryOnly;
+}
+
+// ------------------------------------------------------------------------------
+
+function merge_courses_protected(primary, secondary, joinKey) {
+  const secondaryMap = new Map();
+  const usedSecondaryIds = new Set();
+
+  secondary.forEach(obj => {
+    const id = String(obj?.[joinKey] || "").trim();
+    if (id) secondaryMap.set(id, obj);
+  });
+
+  const merged = primary.map(baseObj => {
+    const id = String(baseObj?.[joinKey] || "").trim();
+    const updateData = secondaryMap.get(id);
+
+    if (updateData) {
+      usedSecondaryIds.add(id);
+      
+      // LOGIC: If baseObj has a course_code and updateData doesn't, 
+      // we make sure the code from baseObj stays.
+      return {
+        ...baseObj, 
+        ...updateData,
+        course_code: (baseObj.course_code && !updateData.course_code) 
+                      ? baseObj.course_code 
+                      : (updateData.course_code || baseObj.course_code)
+      };
+    }
+    return baseObj;
+  });
+
+  const secondaryOnly = secondary.filter(obj => !usedSecondaryIds.has(String(obj?.[joinKey] || "").trim()));
+  return [...merged, ...secondaryOnly];
+}
+
+
+
+// ------------------------------------------------------------------------------
+
+function get_adjusted_rank(p) {
+  if (!p) return {};
+
+  let owgr_rank = Number(p.owgr_rank) || 501;
+  let dg_rank = Number(p.dg_rank) || 501;
+
+  // Use 'let' here because these values will be changed by the IF statement
+  let adjusted_rank;
+  let adjusted_rank_display;
+  let rank_label;
+
+  if (dg_rank < owgr_rank) {
+    adjusted_rank = dg_rank;
+    adjusted_rank_display = dg_rank + " (" + owgr_rank + ")";
+    rank_label = 'adj';
+  } else {
+    adjusted_rank = owgr_rank;
+    adjusted_rank_display = owgr_rank + " (" + dg_rank + ")";
+    rank_label = 'owgr';
+  }
+
+  return {
+    ...p,
+    owgr_rank: owgr_rank,
+    dg_rank: dg_rank,
+    adjusted_rank: adjusted_rank,
+    adjusted_rank_display: adjusted_rank_display,
+    rank_label: rank_label,
+  };
+}
+
+function get_adjusted_rank_datagolf(p) {
+  if (!p) return {};
+
+  let owgr_rank = Number(p.owgr_rank) || 501;
+  let dg_rank = Number(p.datagolf_rank) || 501;
+
+  // Use 'let' here because these values will be changed by the IF statement
+  let adjusted_rank;
+
+  if (dg_rank < owgr_rank) {
+    adjusted_rank = dg_rank;
+  } else {
+    adjusted_rank = owgr_rank;
+  }
+
+  return {
+    adjusted_rank
+  };
+}
+
+// ------------------------------------------------------------------------------
+
+function readSheetData(sheet) {
+  try {
+    const data = sheet.getDataRange().getValues();
+    if (data.length <= 1) {
+      console.log(`Sheet ${sheet.getName()} contains no data besides headers.`);
+      return null;
+    }
+
+    const headers = data[0];
+    const values = data.slice(1);
+
+    return values.map(row => {
+      return headers.reduce((obj, header, index) => {
+        obj[header] = row[index];
+        return obj;
+      }, {});
+    });
+  } catch (e) {
+    console.log(`Error reading data from sheet ${sheet.getName()}: ${e.message}`);
+    return null;
+  }
+}
+
+// ------------------------------------------------------------------------------
+
+function formatDateSafe(date) {
+  if (!date || isNaN(new Date(date).getTime())) return null;
+  const d = new Date(date);
+  // Returns "2026-03-26"
+  return d.toISOString().split('T')[0];
+}
+
+function formatDateTimeSafe_adjusted(date) {
+  if (!date || isNaN(new Date(date).getTime())) return null;
+  const d = new Date(date);
+  const timezone = "GMT-0"
+  
+  // Adjust the "GMT-6" to match your specific timezone if needed
+  // "yyyy-MM-dd HH:mm:ss" results in 2026-03-26 14:30:00
+  return Utilities.formatDate(d, timezone, "yyyy-MM-dd HH:mm:ss");
+}
+
+function formatDateTimeSafe(date) {
+  if (!date || isNaN(new Date(date).getTime())) return null;
+  
+  const d = new Date(date);
+  const timeZone = Session.getScriptTimeZone();
+  const format = "yyyy-MM-dd HH:mm:ss";
+  
+  // Utilities.formatDate is the "Gold Standard" for Google Apps Script 
+  // because it prevents the automatic UTC shift.
+  return Utilities.formatDate(d, timeZone, format);
+}
+
+function formatDateTimeSafe_emails(date,tz) {
+  if (!date || isNaN(new Date(date).getTime())) return null;
+
+  const d = new Date(date);
+  const format = "MM/dd/yyyy 'at' h:mm a z";
+  
+  const formattedDate = Utilities.formatDate(d, tz, format);
+
+  return formattedDate;
+}
+
+function formatDateTime_emails_results(date,tz) {
+  if (!date || isNaN(new Date(date).getTime())) return null;
+
+  const d = new Date(date);
+  const format = "MM/dd/yyyy";
+  
+  const formattedDate = Utilities.formatDate(d, tz, format);
+
+  return formattedDate;
+}
+
+
+// ------------------------------------------------------------------------------
+
+function convertUTCtoET(dateString) {
+
+  // 1. Create a Date object from the UTC string.
+  // The Date object internally stores the exact moment in time.
+  var utcDate = new Date(dateString);
+
+  // 2. Specify the target timezone and desired format.
+  var targetTimezone = "America/New_York";
+  // The format below includes the date, time (HH:mm:ss), and the timezone abbreviation (z).
+  var format = "yyyy-MM-dd HH:mm:ss"; 
+
+  // 3. Use Utilities.formatDate() to perform the conversion.
+  var easternTimeString = Utilities.formatDate(
+    utcDate,
+    targetTimezone,
+    format
+  );
+  
+  return easternTimeString;
+}
+
+// ------------------------------------------------------------------------------
+
+function dedup(array, key) {
+  const cleanMap = new Map();
+  array.forEach(item => {
+    const id = String(item?.[key] || "");
+    if (id) cleanMap.set(id, item); // Last one seen wins
+  });
+  return Array.from(cleanMap.values());
+}
+
+// ------------------------------------------------------------------------------
+
+function dedup_all_fields(dataset) {
+  if (!Array.isArray(dataset)) return [];
+
+  const uniqueMap = new Map();
+
+  dataset.forEach(item => {
+    // 1. Stringify the object to create a unique fingerprint
+    // Note: We sort the keys first to ensure {a:1, b:2} matches {b:2, a:1}
+    const fingerprint = JSON.stringify(item, Object.keys(item).sort());
+
+    // 2. Map only keeps the last version of this specific fingerprint
+    uniqueMap.set(fingerprint, item);
+  });
+
+  // 3. Convert back to an array of objects
+  return Array.from(uniqueMap.values());
+}
+
+// ------------------------------------------------------------------------------
+
+function add_keys(dataset,headers) {
+  const keys_data = dataset.map(row => {
+    let obj = {};
+    headers.forEach((header, index) => {
+      // Convert date strings to Date objects for easy comparison
+      if (header.toLowerCase().includes('date')) {
+        obj[header] = row[index] ? new Date(row[index]) : null;
+      } else {
+        obj[header] = row[index];
+      }
+    });
+    return obj;
+  });
+
+  return keys_data
+}
+
+// ------------------------------------------------------------------------------
+
+function getTournamentEmoji(event_name) {
+  const tournamentName = event_name.toLowerCase();
+  
+  if (tournamentName.includes("masters")) return "🌺";
+  if (tournamentName.includes("phoenix")) return "🌵";
+  if (tournamentName.includes("players")) return "🏝️";
+  if (tournamentName.includes("u.s. open")) return "🗽";
+  if (tournamentName.includes("the open")) return "🏺";
+  if (tournamentName.includes("st. jude")) return "🎸🎗️";
+  if (tournamentName.includes("pga championship")) return "🛡️";
+  
+  return "⛳"; // Default golf flag
+}
+
+// ------------------------------------------------------------------------------
+
+
