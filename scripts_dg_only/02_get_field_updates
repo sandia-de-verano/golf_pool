@@ -1,0 +1,170 @@
+function dg_get_field_updates () {
+  const endOfWeek = new Date(TODAY);
+  endOfWeek.setDate(TODAY.getDate() + (7 - TODAY.getDay()));
+  endOfWeek.setHours(23, 59, 59, 999);
+
+  const current_tournament = readSheetData(CURRENT_TOURNAMENT)
+    const pool_opens = new Date(current_tournament[0].pool_opens)
+
+  const liv_players = SHT_LIV_PLAYERS.getRange(4,14,SHT_LIV_PLAYERS.getLastRow(),1).getValues()
+    .filter(row => row[0] !== "" || row[1] !== "") // Optional: filter out empty rows
+    .map(row => ({ 
+      dg_id: String(row[0]), 
+      active_LIV_player: 'TRUE',
+      selection_group: 'liv'
+    }));
+ 
+  const endpoint = `${SOURCEURL}${ENDPT_FIELD_UPDATES}?${FILEFORMAT}${API_DG}`;
+
+  console.log(endpoint)
+
+  // --- 1. Fetch Data ---
+  let data;
+  let std_dataset = [];
+  let field_selection = []
+
+  try {
+    const response = UrlFetchApp.fetch(endpoint, { muteHttpExceptions: true });
+    if (response.getResponseCode() !== 200) {
+      throw new Error(`HTTP Error ${response.getResponseCode()}`);
+    }
+    data = JSON.parse(response.getContentText());
+    const dataset = data.field;
+
+    dataset.forEach((item) => {
+      let player_name_clean = swapNameOrder(item?.player_name) || "";
+      let item_rank_data = get_adjusted_rank(item); 
+      let adjusted_rank = item_rank_data.adjusted_rank || "501";
+      let rank_label = item_rank_data.rank_label || "";
+      let selection_group
+        if (adjusted_rank > 50) {
+          selection_group = 'alt';
+        } else if (adjusted_rank > 25){
+          selection_group = 's3';
+        } else if (adjusted_rank > 10) {
+          selection_group = 's2';
+        } else {
+          selection_group = 's1';
+        }
+      let player_name_selection = adjusted_rank + " - " + player_name_clean;
+      let start_date = new Date(data.date_start);
+        start_date.setDate(start_date.getDate() + 1);
+        start_date.setHours(00, 00, 00, 000);
+        start_date = formatDateTimeSafe(start_date)
+      let end_date = new Date(data.date_end);
+        end_date.setDate(end_date.getDate() + 1);
+        end_date.setHours(18, 00, 00, 000);
+        end_date = formatDateTimeSafe(end_date)
+      
+      std_dataset.push({
+        tour: data.tour,
+        event_id: data.event_id,
+        event_name: data.event_name,
+        start_date: start_date,
+        end_date: end_date,
+        current_round: data.current_round,
+        multi_course: data?.multi_course,
+        tz_offset: data?.tz_offset,
+        dg_id: item?.dg_id ?? '',
+        player_num: item?.player_num ?? '',
+        pre_tourn_pageviews: item?.pre_tourn_pageviews ?? '',
+        player_name: item?.player_name ?? '',
+        player_name_clean: player_name_clean,
+        player_name_selection: player_name_selection,
+        am: item?.am ?? '',
+        country: item?.country ?? '',
+        dg_rank: item?.dg_rank ?? '',
+        owgr_rank: item?.owgr_rank ?? '',
+        tour_rank: item?.tour_rank ?? '',
+        adjusted_rank: adjusted_rank,
+        rank_label: rank_label,
+        pre_tourn_pageviews: item?.pre_tourn_pageviews ?? '',
+        r1_course_code: item?.teetimes[0]?.course_code ?? '',
+        r1_course_name: item?.teetimes[0]?.course_name ?? '',
+        r1_course_num: item?.teetimes[0]?.course_num ?? '',
+        r1_round_num: item?.teetimes[0]?.round_num ?? '',
+        r1_start_hole: item?.teetimes[0]?.start_hole ?? '',
+        r1_teetime: item?.teetimes[0]?.teetime ?? '',
+        r1_wave: item?.teetimes[0]?.wave ?? '',
+        r2_course_code: item?.teetimes[1]?.course_code ?? '',
+        r2_course_name: item?.teetimes[1]?.course_name ?? '',
+        r2_course_num: item?.teetimes[1]?.course_num ?? '',
+        r2_round_num: item?.teetimes[1]?.round_num ?? '',
+        r2_start_hole: item?.teetimes[1]?.start_hole ?? '',
+        r2_teetime: item?.teetimes[1]?.teetime ?? '',
+        r2_wave: item?.teetimes[1]?.wave ?? '',
+        r3_course_code: item?.teetimes[2]?.course_code ?? '',
+        r3_course_name: item?.teetimes[2]?.course_name ?? '',
+        r3_course_num: item?.teetimes[2]?.course_num ?? '',
+        r3_round_num: item?.teetimes[2]?.round_num ?? '',
+        r3_start_hole: item?.teetimes[2]?.start_hole ?? '',
+        r3_teetime: item?.teetimes[2]?.teetime ?? '',
+        r3_wave: item?.teetimes[2]?.wave ?? '',
+        r4_course_code: item?.teetimes[3]?.course_code ?? '',
+        r4_course_name: item?.teetimes[3]?.course_name ?? '',
+        r4_course_num: item?.teetimes[3]?.course_num ?? '',
+        r4_round_num: item?.teetimes[3]?.round_num ?? '',
+        r4_start_hole: item?.teetimes[3]?.start_hole ?? '',
+        r4_teetime: item?.teetimes[3]?.teetime ?? '',
+        r4_wave: item?.teetimes[3]?.wave ?? '',
+        r5_course_code: item?.teetimes[4]?.course_code ?? '',
+        r5_course_name: item?.teetimes[4]?.course_name ?? '',
+        r5_course_num: item?.teetimes[4]?.course_num ?? '',
+        r5_round_num: item?.teetimes[4]?.round_num ?? '',
+        r5_start_hole: item?.teetimes[4]?.start_hole ?? '',
+        r5_teetime: item?.teetimes[4]?.teetime ?? '',
+        r5_wave: item?.teetimes[4]?.wave ?? '',
+        last_updated: data?.last_updated,
+      })
+
+      field_selection.push({
+        event_id: data.event_id,
+        event_name: data.event_name,
+        dg_id: item?.dg_id ?? '',
+        adjusted_rank: adjusted_rank,
+        player_name_selection: player_name_selection,
+        player_name_clean: player_name_clean,
+        selection_group: selection_group,
+        last_updated: data?.last_updated,
+        active_LIV_player: '',
+        current_round: 0,			
+        update_display_name: "",
+        current_position: adjusted_rank,		
+        total: 0,				
+        make_cut:  '',		
+        top_20	:  '',	
+        top_10	:  '',	
+        top_5	:  '',	
+        win:  '',
+        effective_rank: '',	
+        is_at_risk: ''
+      })
+    })
+
+  std_dataset = merge_data(std_dataset,liv_players,'dg_id')
+  field_selection = merge_data(field_selection,liv_players,'dg_id')
+
+  std_dataset.sort((a, b) => a.adjusted_rank - b.adjusted_rank);
+  field_selection.sort((a, b) => a.adjusted_rank - b.adjusted_rank);
+
+  } catch (e) {
+    console.log(`Failed to fetch DataGolf rankings: ${e.message}`);
+    return;
+  }
+
+  // --- 2. Process Data ---
+
+  if (std_dataset.length > 0) {
+    SHT_FIELD.clearContents()
+    setValues_keys(std_dataset,SHT_FIELD)
+  }
+
+  if(pool_opens > TODAY && field_selection.length > 0) {
+    SHT_FIELD_SELECTION.clearContents()
+    setValues_keys(field_selection,SHT_FIELD_SELECTION)
+    console.log("field_selection updated")
+  } else {
+    console.log("field_selection not updated")
+  }
+
+}
