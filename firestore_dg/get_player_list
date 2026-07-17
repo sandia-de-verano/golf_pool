@@ -1,0 +1,129 @@
+function get_player_list() { 
+
+    //players, rankings, skills, detailed approach
+
+
+  const api_params = {
+    file_format: 'json',
+  };
+
+  const queryParams = Object.entries(api_params)
+    .map(([key, value]) => `${key}=${value}`)
+    .join('&'); 
+
+  const endpoint_play = `${SOURCEURL}${ENDPT_PLYR_LIST}?${queryParams}&${API_DG}`;
+  const endpoint_rank = `${SOURCEURL}${ENDPT_PRD_RANKS}?${queryParams}&${API_DG}`; 
+  const endpoint_skill = `${SOURCEURL}${ENDPT_PRD_SKILL_RATE}?${queryParams}&${API_DG}`;
+  const endpoint_appr = `${SOURCEURL}${ENDPT_PRD_APPROACH_SKILL}??${queryParams}&${API_DG}`;
+
+  let std_dataset = [];
+
+  try {
+      
+      const response_play = UrlFetchApp.fetch(endpoint_play, { muteHttpExceptions: true });
+        if (response_play.getResponseCode() !== 200) {
+          console.warn(`Fetch skipped: Status ${response_play.getResponseCode()}`);
+        return; 
+        }
+        let dataset_play = JSON.parse(response_play.getContentText());
+
+        if (!dataset_play || !Array.isArray(dataset_play)) {
+          console.warn("API response is not a valid player array.");
+          return;
+        }
+
+      // --------
+
+      const response_rank = UrlFetchApp.fetch(endpoint_rank, { muteHttpExceptions: true });
+
+        if (response_rank.getResponseCode() !== 200) {
+          console.warn(`Fetch skipped: Status ${response_rank.getResponseCode()}`);
+        return; 
+        }
+
+        const dataset_t_rank = JSON.parse(response_rank.getContentText());
+        let dataset_rank = dataset_t_rank?.rankings;
+
+        if (!dataset_rank || !Array.isArray(dataset_rank)) {
+          console.warn("API response is not a valid player array.");
+          return;
+        }       
+
+      // --------
+
+      const response_skill = UrlFetchApp.fetch(endpoint_skill, { muteHttpExceptions: true });
+
+        if (response_skill.getResponseCode() !== 200) {
+          console.warn(`Fetch skipped: Status ${response_skill.getResponseCode()}`);
+        return; 
+        }
+
+        const dataset_t_skill = JSON.parse(response_skill.getContentText());
+        let dataset_skill = dataset_t_skill?.players;
+
+        if (!dataset_skill || !Array.isArray(dataset_skill)) {
+          console.warn("API response is not a valid player array.");
+          return;
+        }
+
+      // --------
+
+      const response_appr = UrlFetchApp.fetch(endpoint_appr, { muteHttpExceptions: true });
+
+        if (response_appr.getResponseCode() !== 200) {
+          console.warn(`Fetch skipped: Status ${response_appr.getResponseCode()}`);
+        return; 
+        }
+
+        const dataset_t_appr = JSON.parse(response_appr.getContentText());
+        let dataset_appr = dataset_t_appr?.data;
+
+        if (!dataset_appr || !Array.isArray(dataset_appr)) {
+          console.warn("API response is not a valid player array.");
+          return;
+        }
+      
+    // --------
+    
+
+
+
+let stats_dataset =  merge_data(dataset_skill,dataset_appr,'dg_id')
+  console.log(stats_dataset[0])
+  
+  std_dataset = merge_data(stats_dataset,dataset_rank,'dg_id')
+    console.log(std_dataset[0])
+
+       
+    
+    //clearCollection('players')
+    
+    
+    
+    std_dataset.forEach((item) => {
+      const idString = item.dg_id;
+      const updated_item = {
+        ...item, 
+        player_name_clean: typeof swapNameOrder === 'function' ? swapNameOrder(item?.player_name) : item?.player_name
+      }
+      commitToFirestore(`players_ranked/${idString}`, updated_item)
+    });
+
+  dataset_rank.forEach((item) => {
+      const idString = item.dg_id;
+      const updated_item = {
+        ...item, 
+        player_name_clean: typeof swapNameOrder === 'function' ? swapNameOrder(item?.player_name) : item?.player_name
+      }
+      commitToFirestore(`players_all/${idString}`, updated_item)
+    });
+
+
+  } catch (e) {
+    console.error(`Failed to fetch or process Player List: ${e.message}`);
+  }
+
+Logger.log(`players completed`);
+  
+
+}
