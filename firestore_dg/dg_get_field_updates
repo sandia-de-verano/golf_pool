@@ -1,6 +1,14 @@
-function dg_get_field_updates (exception) {
+function dg_get_field_updates () {
 
-  // field, pretour, decomp, fantasy, live model, live tour
+  // NEED TO ADD UPDATED PROJECTIONS
+
+  const tz = Session.getScriptTimeZone();
+  
+  const app_config = getFirestoreCollection('app_config')
+
+  const current_event = app_config[0];
+    const tournamentStarted = new Date() >= new Date(current_event[0].adj_start_date);
+  const field_data = getFirestoreCollection(current_event.field_coll)
 
   const api_params = {
     file_format: 'json',
@@ -10,182 +18,255 @@ function dg_get_field_updates (exception) {
     .map(([key, value]) => `${key}=${value}`)
     .join('&');
 
-  const api_params_live_tour = {
-    stats: "sg_putt,sg_arg,sg_app,sg_ott,sg_t2g,sg_bs,sg_total,distance,accuracy,gir,prox_fw, prox_rgh,scrambling,great_shots,poor_shots",
-    round: 'event_avg',
-    display: 'rank',
-    file_format: 'json',
-  }
+  // --------------------------------------------------------------------------------
+  // IF TOURNAMENT HAS NOT STARTED
+  // field, pretour, decomp, fantasy
+  if (!tournamentStarted) {
 
-  const queryParams_live = Object.entries(api_params_live_tour)
-    .map(([key, value]) => `${key}=${value}`)
-    .join('&');
+    const endpoint_field = `${SOURCEURL}${ENDPT_FIELD_UPDATES}?${queryParams}${API_DG}`;
+    const endpoint_decomp = `${SOURCEURL}${ENDPT_PRD_PLYR_DECOMP}?${queryParams}${API_DG}`;
+    const endpoint_pre_tour = `${SOURCEURL}${ENDPT_PRD_PRE_TOUR}?${queryParams}${API_DG}`;
+    const endpoint_fantasy = `${SOURCEURL}${ENDPT_PRD_FNTSY}?${queryParams}${API_DG}`;
+    const endpoint_skill = `${SOURCEURL}${ENDPT_PRD_SKILL_RATE}?${queryParams}&${API_DG}`;
+    const endpoint_appr = `${SOURCEURL}${ENDPT_PRD_APPROACH_SKILL}??${queryParams}&${API_DG}`;
 
-  const endpoint_livetour = `${SOURCEURL}${ENDPT_PRD_LIVE_TOUR}?${queryParams_live}&${API_DG}`;
-  const endpoint_inplay = `${SOURCEURL}${ENDPT_PRD_IN_PLAY}?${queryParams}${API_DG}`;
-  const endpoint_field = `${SOURCEURL}${ENDPT_FIELD_UPDATES}?${queryParams}${API_DG}`;
-  const endpoint_decomp = `${SOURCEURL}${ENDPT_PRD_PLYR_DECOMP}?${queryParams}${API_DG}`;
-  const endpoint_pre_tour = `${SOURCEURL}${ENDPT_PRD_PRE_TOUR}?${queryParams}${API_DG}`;
-  const endpoint_fantasy = `${SOURCEURL}${ENDPT_PRD_FNTSY}?${queryParams}${API_DG}`;
-  const endpoint_skill = `${SOURCEURL}${ENDPT_PRD_SKILL_RATE}?${queryParams}&${API_DG}`;
-  const endpoint_appr = `${SOURCEURL}${ENDPT_PRD_APPROACH_SKILL}??${queryParams}&${API_DG}`;
+      try {
 
-  // --- 1. Fetch Data ---
+          let dataset_skill = skill_rating(endpoint_skill)
 
-  try {
+          if (!dataset_skill || !Array.isArray(dataset_skill)) {
+            console.warn("API response is not a valid response_skill array.");
+            return;
+          }
 
-        let dataset_skill = skill_rating(endpoint_skill)
+        // --------
+          let dataset_appr = approach_skill(endpoint_appr)
 
-        if (!dataset_skill || !Array.isArray(dataset_skill)) {
-          console.warn("API response is not a valid response_skill array.");
-          return;
-        }
+          if (!dataset_appr || !Array.isArray(dataset_appr)) {
+            console.warn("API response is not a valid response_appr array.");
+            return;
+          }
+        
+      // --------
+      
+          let dataset_field = field_updates(endpoint_field)
+            //console.log(dataset_field[0])
+
+          if (!dataset_field || !Array.isArray(dataset_field)) {
+            console.warn("API response is not a valid response_field array.");
+            return;
+          }
+
+          const adjusted_dates = get_adjusted_dates(dataset_field)
 
       // --------
-        let dataset_appr = approach_skill(endpoint_appr)
+          let dataset_decomp = player_decomp(endpoint_decomp)
+          if (!dataset_decomp || !Array.isArray(dataset_decomp)) {
+            console.warn("API response is not a valid response_decomp array.");
+            return;
+          }
+        
+      // --------
 
-        if (!dataset_appr || !Array.isArray(dataset_appr)) {
-          console.warn("API response is not a valid response_appr array.");
-          return;
-        }
+          let dataset_pre_tour = pre_tour(endpoint_pre_tour)
+
+          if (!dataset_pre_tour || !Array.isArray(dataset_pre_tour)) {
+            console.warn("API response is not a valid response_pre_tour array.");
+            return;
+          }
+        
+      // --------
+          const response_fantasy = UrlFetchApp.fetch(endpoint_fantasy, { muteHttpExceptions: true });
+
+          if (response_fantasy.getResponseCode() !== 200) {
+            console.warn(`Fetch skipped: Status ${response_fantasy.getResponseCode()}`);
+          return; 
+          }
+
+          const dataset_t_fantasy = JSON.parse(response_fantasy.getContentText());
+          let dataset_fantasy = dataset_t_fantasy.projections
+
+          if (!dataset_fantasy || !Array.isArray(dataset_fantasy)) {
+            console.warn("API response is not a valid response_fantasy array.");
+            return;
+          }
+        
+      // --------
+
+          let dataset_livetour = live_tour_stats(endpoint_livetour)
+
+          if (!dataset_livetour || !Array.isArray(dataset_livetour)) {
+            console.warn("API response is not a valid response_livetour array.");
+            return;
+          }
+        
+      // --------
+
+          let dataset_inplay = live_event(endpoint_inplay)
+
+          if (!dataset_inplay || !Array.isArray(dataset_inplay)) {
+            console.warn("API response is not a valid response_inplay array.");
+            return;
+          }
+        
+      // --------
+
+      // skill and approach data
+
+      let stats_dataset =  merge_data(dataset_skill,dataset_appr,'dg_id')
+
+      // field / Tournament data
+
+      let field_pretour_dataset = merge_data(dataset_field,dataset_pre_tour,'dg_id')
+
+      let field_decomp_dataset = merge_data(field_pretour_dataset,dataset_decomp,'dg_id')
+
+      let field_fantasy_dataset = merge_data(field_decomp_dataset,dataset_fantasy,'dg_id')
+
+      // merge pre tour and tournament data
       
-    // --------
+      let final_dataset = merge_data(field_fantasy_dataset,stats_dataset,'dg_id')
+
+      const dataset_ids = new Set(final_dataset.map(item => item.dg_id));
+
+      const event_id = final_dataset[0].event_id
+      const tour = final_dataset[0].tour
+      const year = final_dataset[0].year
+      const event_slug = generateEventSlug(final_dataset[0].event_name)
+      const uid = `${year}_${event_id}_${tour}_${event_slug}`
+      const collection = `field_${year}_${event_id}_${tour}_${event_slug}`
+
+      field_data.forEach(item =>{
+        const idString = item.dg_id;
+        if (!dataset_ids.has(idString)) {    
+          // Update just the status field to "Inactive"
+          const statusUpdate = { 
+            status: "WD"
+          };
+          // Pass 'true' as the 3rd argument to merge fields instead of overwriting the whole document
+          firestore.updateDocument(`${collection}/${idString}`, statusUpdate, true);
+        } else {
+          commitToFirestore(`${collection}/${idString}`, item)
+        }
+      })
     
-        let dataset_field = field_updates(endpoint_field)
-          //console.log(dataset_field[0])
+      // --- Create App_Config ---
 
-        if (!dataset_field || !Array.isArray(dataset_field)) {
-          console.warn("API response is not a valid response_field array.");
-          return;
-        }
+      const tournaments = getFirestoreCollection('tournaments')
+        
+      const current_tournament = tournaments.filter(item =>
+        String(item.event_id) === String(event_id) &&
+        String(item.tour) === String(tour) &&
+        String(item.year) === String(year) &&
+        String(item.event_slug) === String(event_slug)
+      )
 
-        const adjusted_dates = get_adjusted_dates(dataset_field)
-
-    // --------
-        let dataset_decomp = player_decomp(endpoint_decomp)
-        if (!dataset_decomp || !Array.isArray(dataset_decomp)) {
-          console.warn("API response is not a valid response_decomp array.");
-          return;
-        }
-      
-    // --------
-
-        let dataset_pre_tour = pre_tour(endpoint_pre_tour)
-
-        if (!dataset_pre_tour || !Array.isArray(dataset_pre_tour)) {
-          console.warn("API response is not a valid response_pre_tour array.");
-          return;
-        }
-      
-    // --------
-        const response_fantasy = UrlFetchApp.fetch(endpoint_fantasy, { muteHttpExceptions: true });
-
-        if (response_fantasy.getResponseCode() !== 200) {
-          console.warn(`Fetch skipped: Status ${response_fantasy.getResponseCode()}`);
-        return; 
-        }
-
-        const dataset_t_fantasy = JSON.parse(response_fantasy.getContentText());
-        let dataset_fantasy = dataset_t_fantasy.projections
-
-        if (!dataset_fantasy || !Array.isArray(dataset_fantasy)) {
-          console.warn("API response is not a valid response_fantasy array.");
-          return;
-        }
-      
-    // --------
-
-        let dataset_livetour = live_tour_stats(endpoint_livetour)
-
-        if (!dataset_livetour || !Array.isArray(dataset_livetour)) {
-          console.warn("API response is not a valid response_livetour array.");
-          return;
-        }
-      
-    // --------
-
-        let dataset_inplay = live_event(endpoint_inplay)
-
-        if (!dataset_inplay || !Array.isArray(dataset_inplay)) {
-          console.warn("API response is not a valid response_inplay array.");
-          return;
-        }
-      
-    // --------
-
-    //Pre-tour info, skill rating, approach skill, rankings
-
-    let stats_dataset =  merge_data(dataset_skill,dataset_appr,'dg_id')
-
-    // field / live data
-
-    let field_pretour_dataset = merge_data(dataset_field,dataset_pre_tour,'dg_id')
-
-    let field_decomp_dataset = merge_data(field_pretour_dataset,dataset_decomp,'dg_id')
-
-    let field_fantasy_dataset = merge_data(field_decomp_dataset,dataset_fantasy,'dg_id')
-
-    // live data
-
-    let live_dataset = merge_data(dataset_inplay,dataset_livetour,'dg_id')
-
-    let field_1_dataset = merge_data(field_fantasy_dataset,stats_dataset,'dg_id')
-
-    let final_dataset = merge_data(field_1_dataset,live_dataset,'dg_id')
-
-    const event_id = `${final_dataset.year}_${final_dataset.event_id}_${final_dataset.tour}_${event_slug}`
-    const tournaments = getFirestoreCollection('tournaments')
-
-    const current_tournament = tournaments.filter() // This will now naturally ignore the nulls
-
-      const referenceKeys = new Set(pool_tour.map(ref => {
-        const clean_year = String(ref.year || "").trim();
-        const clean_event_id = String(ref.event_id || "").trim();
-        const clean_tour = String(ref.tour || "").trim();
-        return `${clean_year}|${clean_event_id}|${clean_tour}`;
-      }));
-
-
-    let app_config = {
-        current_event_id: final_dataset[0].event_id,
-        current_event_tour: final_dataset[0].tour,
+      let app_config = {
+        current_event_id: event_id,
+        current_event_tour: tour,
         event_name: final_dataset[0].event_name,
-        event_slug: final_dataset[0].event_slug,
-        year: final_dataset[0].year,
+        event_slug: event_slug,
+        year: year,
         current_start_date: final_dataset[0].start_date,
-        current_end_date: final_dataset[0].end_date
+        current_end_date: final_dataset[0].end_date,
+        current_is_pool: current_tournament[0].current_is_pool,
+        lat: current_tournament[0].latitude,
+        lon: current_tournament[0].longitude,
+        season: current_tournament[0].season,
+        course: current_tournament[0].course,
+        country: current_tournament[0].country,
+        location: current_tournament[0].location,
+        field_coll: collection,
+        weather_coll: "weather_"+uid
       }
 
+      Object.assign(app_config, adjusted_dates)
+      const app_config_keys = Object.keys(app_config)
 
+      updateFirestoreDocumentFields('app_config', 'global_state', app_config, app_config_keys)  
 
-    Object.assign(app_config, adjusted_dates)
+    } catch (e) {
+      //console.log(`Failed to fetch DataGolf Field Updates: ${e.message}`);
+      return;
+    }
+  
+  } else {
 
-    const app_config_keys = Object.keys(app_config)
+  // --------------------------------------------------------------------------------
+  // IF TOURNAMENT HAS STARTED
+  // live model, live tour
 
-    console.log(app_config)
-    console.log(app_config_keys)
+    const api_params_live_tour = {
+      stats: "sg_putt,sg_arg,sg_app,sg_ott,sg_t2g,sg_bs,sg_total,distance,accuracy,gir,prox_fw, prox_rgh,scrambling,great_shots,poor_shots",
+      round: 'event_avg',
+      display: 'rank',
+      file_format: 'json',
+    }
 
-    final_dataset.forEach((item) => {
-      const idString = item.dg_id;
-      const event_slug = generateEventSlug(item.event_name)
-      const collection = `field_${item.year}_${item.event_id}_${item.tour}_${event_slug}`
+    const queryParams_live = Object.entries(api_params_live_tour)
+      .map(([key, value]) => `${key}=${value}`)
+      .join('&');
 
-      //commitToFirestore(`${collection}/${idString}`, item)
-    });
+    const endpoint_livetour = `${SOURCEURL}${ENDPT_PRD_LIVE_TOUR}?${queryParams_live}&${API_DG}`;
+    const endpoint_inplay = `${SOURCEURL}${ENDPT_PRD_IN_PLAY}?${queryParams}${API_DG}`;
 
-    
+    // --- 1. Fetch Data ---
 
-    updateFirestoreDocumentFields('app_config', 'global_state', app_config, app_config_keys)  
+    try {
 
-  } catch (e) {
-    console.log(`Failed to fetch DataGolf rankings: ${e.message}`);
-    return;
+      let dataset_livetour = live_tour_stats(endpoint_livetour)
+
+      if (!dataset_livetour || !Array.isArray(dataset_livetour)) {
+        console.warn("API response is not a valid response_livetour array.");
+            return;
+      }
+        
+      // --------
+
+      let dataset_inplay = live_event(endpoint_inplay)
+
+      if (!dataset_inplay || !Array.isArray(dataset_inplay)) {
+        console.warn("API response is not a valid response_inplay array.");
+        return;
+      }
+
+      // live data
+
+      let final_dataset = merge_data(dataset_inplay,dataset_livetour,'dg_id')
+
+      const dataset_ids = new Set(final_dataset.map(item => item.dg_id));
+
+      const event_id = final_dataset[0].event_id
+      const tour = final_dataset[0].tour
+      const year = final_dataset[0].year
+      const event_slug = generateEventSlug(final_dataset[0].event_name)
+      const uid = `${year}_${event_id}_${tour}_${event_slug}`
+      const collection = `field_${year}_${event_id}_${tour}_${event_slug}`
+
+      field_data.forEach(item =>{
+        const idString = item.dg_id;
+        if (!dataset_ids.has(idString)) {    
+          // Update just the status field to "Inactive"
+          const statusUpdate = { 
+            status: "WD"
+          };
+          // Pass 'true' as the 3rd argument to merge fields instead of overwriting the whole document
+          firestore.updateDocument(`${collection}/${idString}`, statusUpdate, true);
+        } else {
+          commitToFirestore(`${collection}/${idString}`, item)
+        }
+      })
+
+    } catch (e) {
+      //console.log(`Failed to fetch DataGolf Field Updates: ${e.message}`);
+      return;
+    }
   }
 }
 
 function field_updates(endpoint) {
 
-  console.log('fetching endpoint: '+endpoint)
+  console.log('fetching field_updates endpoint: '+endpoint)
 
   // --- 1. Fetch Data ---
   let data;
@@ -206,17 +287,18 @@ function field_updates(endpoint) {
       let rank_label = item_rank_data.rank_label || "";
       let selection_group
         if (adjusted_rank > 60) {
-          selection_group_v2 = 'alt';
+          selection_group = 'alt';
         } else if (adjusted_rank > 40){
-          selection_group_v2  = 's4';
+          selection_group  = 's4';
         } else if (adjusted_rank > 25){
-          selection_group_v2  = 's3';
+          selection_group  = 's3';
         } else if (adjusted_rank > 10) {
-          selection_group_v2  = 's2';
+          selection_group  = 's2';
         } else {
-          selection_group_v2  = 's1';
+          selection_group  = 's1';
         }
       let player_name_selection = adjusted_rank + " - " + player_name_clean;
+      let status = "Active"
       std_dataset.push({
         event_id: data.event_id,
         tour: data.tour,
@@ -242,6 +324,7 @@ function field_updates(endpoint) {
         adjusted_rank: adjusted_rank,
         rank_label: rank_label,
         pre_tourn_pageviews: item?.pre_tourn_pageviews ?? '',
+        status: status,
         r1_course_code: item?.teetimes[0]?.course_code ?? '',
         r1_course_name: item?.teetimes[0]?.course_name ?? '',
         r1_course_num: item?.teetimes[0]?.course_num ?? '',
@@ -276,7 +359,7 @@ function field_updates(endpoint) {
     return std_dataset
 
   } catch (e) {
-    //console.log(`Failed to fetch DataGolf rankings: ${e.message}`);
+    //console.log(`Failed to fetch DataGolf field_updates: ${e.message}`);
     return;
   }
 
@@ -285,7 +368,7 @@ function field_updates(endpoint) {
 
 function skill_rating(endpoint) {
 
-  console.log('fetching endpoint: '+endpoint)
+  console.log('fetching skill_rating endpoint: '+endpoint)
 
   const std_dataset = [];
   
@@ -325,7 +408,7 @@ function skill_rating(endpoint) {
   }
 
   } catch (e) {
-    console.error(`Failed to fetch DataGolf rankings: ${e.message}`);
+    console.error(`Failed to fetch DataGolf skill_rating: ${e.message}`);
   }
 }
 
@@ -390,7 +473,7 @@ function player_decomp(endpoint) {
 
 function live_tour_stats(endpoint) {
 
-  console.log('fetching endpoint: '+endpoint)
+  console.log('fetching live_tour_stats endpoint: '+endpoint)
 
   // --- 1. Fetch Data ---
   let data;
@@ -407,6 +490,7 @@ function live_tour_stats(endpoint) {
   
     dataset.forEach((item) => {
       std_dataset.push({
+        //current_round: data.info.current_round,
         dg_id: item?.dg_id ?? '',
         current_position: item?.position ?? '',
         thru: item?.thru ?? '',
@@ -434,14 +518,14 @@ function live_tour_stats(endpoint) {
     return std_dataset
 
   } catch (e) {
-    console.log(`Failed to fetch DataGolf rankings: ${e.message}`);
+    console.log(`Failed to fetch DataGolf live_tour_stats: ${e.message}`);
     return;
   }
 }
 
 function live_event(endpoint) {
 
-  console.log('fetching endpoint: '+endpoint)
+  console.log('fetching live_event endpoint: '+endpoint)
 
   // --- 1. Fetch Data ---
   let data;
@@ -477,7 +561,7 @@ function live_event(endpoint) {
     return std_dataset
 
   } catch (e) {
-    console.log(`Failed to fetch DataGolf in play data: ${e.message}`);
+    console.log(`Failed to fetch DataGolf live_event / in play data: ${e.message}`);
     return;
   }
 
@@ -485,7 +569,7 @@ function live_event(endpoint) {
 
 function live_hole(endpoint) {
 
-  console.log('fetching endpoint: '+endpoint)
+  console.log('fetching live_hole endpoint: '+endpoint)
 
   // --- 1. Fetch Data ---
   let data;
@@ -606,7 +690,7 @@ function live_hole(endpoint) {
 
 
   } catch (e) {
-    console.log(`Failed to fetch DataGolf rankings: ${e.message}`);
+    console.log(`Failed to fetch DataGolf live_hole: ${e.message}`);
     return;
   }
 
@@ -654,7 +738,7 @@ function approach_skill(endpoint) {
 
 function pre_tour(endpoint) {
 
-  console.log('fetching endpoint: '+endpoint)
+  console.log('fetching pre_tour endpoint: '+endpoint)
 
   // --- 1. Fetch Data ---
   let data;
@@ -686,7 +770,7 @@ function pre_tour(endpoint) {
   }
 
   } catch (e) {
-    console.log(`Failed to fetch DataGolf rankings: ${e.message}`);
+    console.log(`Failed to fetch DataGolf pre_tour: ${e.message}`);
     return;
   }
 
@@ -767,11 +851,6 @@ function get_adjusted_dates(field){
     updates_due_notification : (updates_due_notification),
     results_notification: (results_notification),
   }
-
-
-
-
-
 }
 
 
