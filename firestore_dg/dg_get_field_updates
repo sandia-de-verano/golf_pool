@@ -1,0 +1,778 @@
+function dg_get_field_updates (exception) {
+
+  // field, pretour, decomp, fantasy, live model, live tour
+
+  const api_params = {
+    file_format: 'json',
+  };
+
+  const queryParams = Object.entries(api_params)
+    .map(([key, value]) => `${key}=${value}`)
+    .join('&');
+
+  const api_params_live_tour = {
+    stats: "sg_putt,sg_arg,sg_app,sg_ott,sg_t2g,sg_bs,sg_total,distance,accuracy,gir,prox_fw, prox_rgh,scrambling,great_shots,poor_shots",
+    round: 'event_avg',
+    display: 'rank',
+    file_format: 'json',
+  }
+
+  const queryParams_live = Object.entries(api_params_live_tour)
+    .map(([key, value]) => `${key}=${value}`)
+    .join('&');
+
+  const endpoint_livetour = `${SOURCEURL}${ENDPT_PRD_LIVE_TOUR}?${queryParams_live}&${API_DG}`;
+  const endpoint_inplay = `${SOURCEURL}${ENDPT_PRD_IN_PLAY}?${queryParams}${API_DG}`;
+  const endpoint_field = `${SOURCEURL}${ENDPT_FIELD_UPDATES}?${queryParams}${API_DG}`;
+  const endpoint_decomp = `${SOURCEURL}${ENDPT_PRD_PLYR_DECOMP}?${queryParams}${API_DG}`;
+  const endpoint_pre_tour = `${SOURCEURL}${ENDPT_PRD_PRE_TOUR}?${queryParams}${API_DG}`;
+  const endpoint_fantasy = `${SOURCEURL}${ENDPT_PRD_FNTSY}?${queryParams}${API_DG}`;
+  const endpoint_skill = `${SOURCEURL}${ENDPT_PRD_SKILL_RATE}?${queryParams}&${API_DG}`;
+  const endpoint_appr = `${SOURCEURL}${ENDPT_PRD_APPROACH_SKILL}??${queryParams}&${API_DG}`;
+
+  // --- 1. Fetch Data ---
+
+  try {
+
+        let dataset_skill = skill_rating(endpoint_skill)
+
+        if (!dataset_skill || !Array.isArray(dataset_skill)) {
+          console.warn("API response is not a valid response_skill array.");
+          return;
+        }
+
+      // --------
+        let dataset_appr = approach_skill(endpoint_appr)
+
+        if (!dataset_appr || !Array.isArray(dataset_appr)) {
+          console.warn("API response is not a valid response_appr array.");
+          return;
+        }
+      
+    // --------
+    
+        let dataset_field = field_updates(endpoint_field)
+          //console.log(dataset_field[0])
+
+        if (!dataset_field || !Array.isArray(dataset_field)) {
+          console.warn("API response is not a valid response_field array.");
+          return;
+        }
+
+        const adjusted_dates = get_adjusted_dates(dataset_field)
+
+    // --------
+        let dataset_decomp = player_decomp(endpoint_decomp)
+        if (!dataset_decomp || !Array.isArray(dataset_decomp)) {
+          console.warn("API response is not a valid response_decomp array.");
+          return;
+        }
+      
+    // --------
+
+        let dataset_pre_tour = pre_tour(endpoint_pre_tour)
+
+        if (!dataset_pre_tour || !Array.isArray(dataset_pre_tour)) {
+          console.warn("API response is not a valid response_pre_tour array.");
+          return;
+        }
+      
+    // --------
+        const response_fantasy = UrlFetchApp.fetch(endpoint_fantasy, { muteHttpExceptions: true });
+
+        if (response_fantasy.getResponseCode() !== 200) {
+          console.warn(`Fetch skipped: Status ${response_fantasy.getResponseCode()}`);
+        return; 
+        }
+
+        const dataset_t_fantasy = JSON.parse(response_fantasy.getContentText());
+        let dataset_fantasy = dataset_t_fantasy.projections
+
+        if (!dataset_fantasy || !Array.isArray(dataset_fantasy)) {
+          console.warn("API response is not a valid response_fantasy array.");
+          return;
+        }
+      
+    // --------
+
+        let dataset_livetour = live_tour_stats(endpoint_livetour)
+
+        if (!dataset_livetour || !Array.isArray(dataset_livetour)) {
+          console.warn("API response is not a valid response_livetour array.");
+          return;
+        }
+      
+    // --------
+
+        let dataset_inplay = live_event(endpoint_inplay)
+
+        if (!dataset_inplay || !Array.isArray(dataset_inplay)) {
+          console.warn("API response is not a valid response_inplay array.");
+          return;
+        }
+      
+    // --------
+
+    //Pre-tour info, skill rating, approach skill, rankings
+
+    let stats_dataset =  merge_data(dataset_skill,dataset_appr,'dg_id')
+
+    // field / live data
+
+    let field_pretour_dataset = merge_data(dataset_field,dataset_pre_tour,'dg_id')
+
+    let field_decomp_dataset = merge_data(field_pretour_dataset,dataset_decomp,'dg_id')
+
+    let field_fantasy_dataset = merge_data(field_decomp_dataset,dataset_fantasy,'dg_id')
+
+    // live data
+
+    let live_dataset = merge_data(dataset_inplay,dataset_livetour,'dg_id')
+
+    let field_1_dataset = merge_data(field_fantasy_dataset,stats_dataset,'dg_id')
+
+    let final_dataset = merge_data(field_1_dataset,live_dataset,'dg_id')
+
+    const event_id = `${final_dataset.year}_${final_dataset.event_id}_${final_dataset.tour}_${event_slug}`
+    const tournaments = getFirestoreCollection('tournaments')
+
+    const current_tournament = tournaments.filter() // This will now naturally ignore the nulls
+
+      const referenceKeys = new Set(pool_tour.map(ref => {
+        const clean_year = String(ref.year || "").trim();
+        const clean_event_id = String(ref.event_id || "").trim();
+        const clean_tour = String(ref.tour || "").trim();
+        return `${clean_year}|${clean_event_id}|${clean_tour}`;
+      }));
+
+
+    let app_config = {
+        current_event_id: final_dataset[0].event_id,
+        current_event_tour: final_dataset[0].tour,
+        event_name: final_dataset[0].event_name,
+        event_slug: final_dataset[0].event_slug,
+        year: final_dataset[0].year,
+        current_start_date: final_dataset[0].start_date,
+        current_end_date: final_dataset[0].end_date
+      }
+
+
+
+    Object.assign(app_config, adjusted_dates)
+
+    const app_config_keys = Object.keys(app_config)
+
+    console.log(app_config)
+    console.log(app_config_keys)
+
+    final_dataset.forEach((item) => {
+      const idString = item.dg_id;
+      const event_slug = generateEventSlug(item.event_name)
+      const collection = `field_${item.year}_${item.event_id}_${item.tour}_${event_slug}`
+
+      //commitToFirestore(`${collection}/${idString}`, item)
+    });
+
+    
+
+    updateFirestoreDocumentFields('app_config', 'global_state', app_config, app_config_keys)  
+
+  } catch (e) {
+    console.log(`Failed to fetch DataGolf rankings: ${e.message}`);
+    return;
+  }
+}
+
+function field_updates(endpoint) {
+
+  console.log('fetching endpoint: '+endpoint)
+
+  // --- 1. Fetch Data ---
+  let data;
+  let std_dataset = [];
+
+  try {
+    const response = UrlFetchApp.fetch(endpoint, { muteHttpExceptions: true });
+    if (response.getResponseCode() !== 200) {
+      throw new Error(`HTTP Error ${response.getResponseCode()}`);
+    }
+    data = JSON.parse(response.getContentText());
+    const dataset = data.field;
+
+    dataset.forEach((item) => {
+      let player_name_clean = swapNameOrder(item?.player_name) || "";
+      let item_rank_data = get_adjusted_rank(item); 
+      let adjusted_rank = item_rank_data.adjusted_rank || "501";
+      let rank_label = item_rank_data.rank_label || "";
+      let selection_group
+        if (adjusted_rank > 60) {
+          selection_group_v2 = 'alt';
+        } else if (adjusted_rank > 40){
+          selection_group_v2  = 's4';
+        } else if (adjusted_rank > 25){
+          selection_group_v2  = 's3';
+        } else if (adjusted_rank > 10) {
+          selection_group_v2  = 's2';
+        } else {
+          selection_group_v2  = 's1';
+        }
+      let player_name_selection = adjusted_rank + " - " + player_name_clean;
+      std_dataset.push({
+        event_id: data.event_id,
+        tour: data.tour,
+        event_name: data.event_name,
+        start_date: data.date_start,
+        end_date: data.date_end,
+        year: data.date_start.split('-')[0],
+        current_round: data.current_round,
+        multi_course: data?.multi_course,
+        tz_offset: data?.tz_offset,
+        selection_group: selection_group,
+        dg_id: item?.dg_id ?? '',
+        player_num: item?.player_num ?? '',
+        pre_tourn_pageviews: item?.pre_tourn_pageviews ?? '',
+        player_name: item?.player_name ?? '',
+        player_name_clean: player_name_clean,
+        player_name_selection: player_name_selection,
+        am: item?.am ?? '',
+        country: item?.country ?? '',
+        dg_rank: item?.dg_rank ?? '',
+        owgr_rank: item?.owgr_rank ?? '',
+        tour_rank: item?.tour_rank ?? '',
+        adjusted_rank: adjusted_rank,
+        rank_label: rank_label,
+        pre_tourn_pageviews: item?.pre_tourn_pageviews ?? '',
+        r1_course_code: item?.teetimes[0]?.course_code ?? '',
+        r1_course_name: item?.teetimes[0]?.course_name ?? '',
+        r1_course_num: item?.teetimes[0]?.course_num ?? '',
+        r1_round_num: item?.teetimes[0]?.round_num ?? '',
+        r1_start_hole: item?.teetimes[0]?.start_hole ?? '',
+        r1_teetime: item?.teetimes[0]?.teetime ?? '',
+        r1_wave: item?.teetimes[0]?.wave ?? '',
+        r2_course_code: item?.teetimes[1]?.course_code ?? '',
+        r2_course_name: item?.teetimes[1]?.course_name ?? '',
+        r2_course_num: item?.teetimes[1]?.course_num ?? '',
+        r2_round_num: item?.teetimes[1]?.round_num ?? '',
+        r2_start_hole: item?.teetimes[1]?.start_hole ?? '',
+        r2_teetime: item?.teetimes[1]?.teetime ?? '',
+        r2_wave: item?.teetimes[1]?.wave ?? '',
+        r3_course_code: item?.teetimes[2]?.course_code ?? '',
+        r3_course_name: item?.teetimes[2]?.course_name ?? '',
+        r3_course_num: item?.teetimes[2]?.course_num ?? '',
+        r3_round_num: item?.teetimes[2]?.round_num ?? '',
+        r3_start_hole: item?.teetimes[2]?.start_hole ?? '',
+        r3_teetime: item?.teetimes[2]?.teetime ?? '',
+        r3_wave: item?.teetimes[2]?.wave ?? '',
+        r4_course_code: item?.teetimes[3]?.course_code ?? '',
+        r4_course_name: item?.teetimes[3]?.course_name ?? '',
+        r4_course_num: item?.teetimes[3]?.course_num ?? '',
+        r4_round_num: item?.teetimes[3]?.round_num ?? '',
+        r4_start_hole: item?.teetimes[3]?.start_hole ?? '',
+        r4_teetime: item?.teetimes[3]?.teetime ?? '',
+        r4_wave: item?.teetimes[3]?.wave ?? ''
+      })
+    })
+
+    return std_dataset
+
+  } catch (e) {
+    //console.log(`Failed to fetch DataGolf rankings: ${e.message}`);
+    return;
+  }
+
+}
+
+
+function skill_rating(endpoint) {
+
+  console.log('fetching endpoint: '+endpoint)
+
+  const std_dataset = [];
+  
+  try {
+    const response = UrlFetchApp.fetch(endpoint, { muteHttpExceptions: true });
+    
+    if (response.getResponseCode() !== 200) {
+      console.warn(`Fetch skipped: Status ${response.getResponseCode()}`);
+      return; 
+    }
+
+    const data = JSON.parse(response.getContentText());
+    const dataset = data?.players; // Use optional chaining
+
+    if (!dataset || !Array.isArray(dataset)) {
+      console.warn("No player data found in the response.");
+      return;
+    }
+
+    dataset.forEach((item) => {
+      std_dataset.push({
+        dg_id: item?.dg_id ?? '',
+        skrt_driving_acc: item?.driving_acc ?? '',
+        skrt_driving_dist: item?.driving_dist ?? '',
+        skrt_sg_app: item?.sg_app ?? '',
+        skrt_sg_arg: item?.sg_arg ?? '',
+        skrt_sg_ott: item?.sg_ott ?? '',
+        skrt_sg_putt: item?.sg_putt ?? '',
+        skrt_sg_total: item?.sg_total ?? '',
+      });
+    });
+
+  if (std_dataset && Array.isArray(std_dataset) && std_dataset.length > 0) {
+    return std_dataset
+  } else {
+    console.warn("No data found in the API response.");
+  }
+
+  } catch (e) {
+    console.error(`Failed to fetch DataGolf rankings: ${e.message}`);
+  }
+}
+
+function player_decomp(endpoint) {
+
+  console.log("Fetching Player Decomp from:", endpoint);
+
+  const std_dataset = [];
+  try {
+    const response = UrlFetchApp.fetch(endpoint, { muteHttpExceptions: true });
+    
+    // 1. Check HTTP Status
+    if (response.getResponseCode() !== 200) {
+      console.warn(`Fetch skipped: Status ${response.getResponseCode()}`);
+      return; 
+    }
+
+    const data = JSON.parse(response.getContentText());
+    const dataset = data?.players;
+
+    // 2. Check if player data exists
+    if (!dataset || !Array.isArray(dataset)) {
+      console.warn("No player decomposition data found in the response.");
+      return;
+    }
+
+    dataset.forEach((item) => {
+      std_dataset.push({
+        dg_id: item?.dg_id ?? '',
+        pldc_age: item?.age ?? '',
+        pldc_age_adjustment: item?.age_adjustment ?? '',
+        pldc_baseline_pred: item?.baseline_pred ?? '',
+        pldc_cf_approach_comp: item?.cf_approach_comp ?? '',
+        pldc_cf_short_comp: item?.cf_short_comp ?? '',
+        pldc_country_adjustment: item?.country_adjustment ?? '',
+        pldc_course_experience_adjustment: item?.course_experience_adjustment ?? '',
+        pldc_course_history_adjustment: item?.course_history_adjustment ?? '',
+        pldc_driving_accuracy_adjustment: item?.driving_accuracy_adjustment ?? '',
+        pldc_driving_distance_adjustment: item?.driving_distance_adjustment ?? '',
+        pldc_final_pred: item?.final_pred ?? '',
+        pldc_other_fit_adjustment: item?.other_fit_adjustment ?? '',
+        pldc_strokes_gained_category_adjustment: item?.strokes_gained_category_adjustment ?? '',
+        pldc_timing_adjustment: item?.timing_adjustment ?? '',
+        pldc_total_course_history_adjustment: item?.total_course_history_adjustment ?? '',
+        pldc_total_fit_adjustment: item?.total_fit_adjustment ?? '',
+        pldc_true_sg_adjustments: item?.true_sg_adjustments ?? '',
+        pldc_sample_size: item?.sample_size ?? '',
+        pldc_std_deviation: item?.std_deviation ?? '',
+      });
+    });
+
+  if (std_dataset && Array.isArray(std_dataset) && std_dataset.length > 0) {
+    return std_dataset
+  } else {
+    console.warn("No data found in the API response.");
+  }
+
+  } catch (e) {
+    console.error(`Failed to process player decomp: ${e.message}`);
+  }
+}
+
+function live_tour_stats(endpoint) {
+
+  console.log('fetching endpoint: '+endpoint)
+
+  // --- 1. Fetch Data ---
+  let data;
+  const std_dataset = [];
+  
+  try {
+    const response = UrlFetchApp.fetch(endpoint, { muteHttpExceptions: true });
+    if (response.getResponseCode() !== 200) {
+      throw new Error(`HTTP Error ${response.getResponseCode()}`);
+    }
+  
+    data = JSON.parse(response.getContentText());
+    const dataset = data.live_stats
+  
+    dataset.forEach((item) => {
+      std_dataset.push({
+        dg_id: item?.dg_id ?? '',
+        current_position: item?.position ?? '',
+        thru: item?.thru ?? '',
+        total: item?.total ?? '', 
+        today: item?.today ?? '',
+        lt_distance: item?.distance ?? '',
+        lt_accuracy: item?.accuracy ?? '',
+        lt_gir: item?.gir ?? '',
+        lt_prox_fw: item?.prox_fw ?? '',
+        lt_scrambling: item?.scrambling ?? '',
+        lt_prox_rgh: item?.prox_rgh ?? '',
+        lt_great_shots: item?.great_shots ?? '',
+        lt_poor_shots: item?.poor_shots ?? '',
+        lt_sg_putt: item?.sg_putt ?? '',
+        lt_sg_arg: item?.sg_arg ?? '',
+        lt_sg_ott: item?.sg_ott ?? '',
+        lt_sg_t2g: item?.sg_t2g ?? '',
+        lt_sg_bs: item?.sg_bs ?? '',
+        lt_sg_total: item?.sg_total ?? '',
+        lt_stat_display: data?.stat_display ?? '',
+        lt_stat_round: data?.stat_round ?? '',
+      })
+    })
+
+    return std_dataset
+
+  } catch (e) {
+    console.log(`Failed to fetch DataGolf rankings: ${e.message}`);
+    return;
+  }
+}
+
+function live_event(endpoint) {
+
+  console.log('fetching endpoint: '+endpoint)
+
+  // --- 1. Fetch Data ---
+  let data;
+  const std_dataset = [];
+  try {
+    const response = UrlFetchApp.fetch(endpoint, { muteHttpExceptions: true });
+    if (response.getResponseCode() !== 200) {
+      throw new Error(`HTTP Error ${response.getResponseCode()}`);
+    }
+    
+    data = JSON.parse(response.getContentText());
+    const dataset = data.data
+    
+    dataset.forEach((item) => {
+      std_dataset.push({
+          current_round: data.info?.current_round ?? '',
+          dg_id: item?.dg_id ?? '',
+          round: item?.round ?? '',
+          R1: item?.R1 ?? '',
+          R2: item?.R2 ?? '',
+          R3: item?.R3 ?? '',
+          R4: item?.R4 ?? '',
+          end_hole: item?.end_hole ?? '',
+          course_code: item?.course ?? '',
+          le_make_cut: item?.make_cut ?? '',
+          le_top_20: item?.top_20 ?? '',
+          le_top_10: item?.top_10 ?? '',
+          le_top_5: item?.top_5 ?? '',
+          le_win: item?.win ?? ''
+        });
+    })
+
+    return std_dataset
+
+  } catch (e) {
+    console.log(`Failed to fetch DataGolf in play data: ${e.message}`);
+    return;
+  }
+
+}
+
+function live_hole(endpoint) {
+
+  console.log('fetching endpoint: '+endpoint)
+
+  // --- 1. Fetch Data ---
+  let data;
+  const std_dataset_total = [];
+  const std_dataset_AM = [];
+  const std_dataset_PM = [];
+  let final_dataset = [];
+  try {
+    const response = UrlFetchApp.fetch(endpoint, { muteHttpExceptions: true });
+    if (response.getResponseCode() !== 200) {
+      throw new Error(`HTTP Error ${response.getResponseCode()}`);
+    }
+    data = JSON.parse(response.getContentText());
+    const course_data = data?.courses
+
+  course_data.forEach((course) => {
+    const rounds = course.rounds
+
+    rounds.forEach((round) => {
+      const holes = round.holes
+
+      holes.forEach((hole) => {
+        std_dataset_total.push({
+          period: 'Total',
+          hole_round_period:  `Hole ${hole?.hole || 0} R${round.round_num ?? ''} - Total` ,
+          event_name: data.event_name ?? '',
+          current_round: data.current_round ?? '',
+          last_updated: data.last_update,
+          course_code: course.course_code ?? '',
+          course_key: course.course_key ?? '',
+          round_num: round.round_num ?? '',        
+          hole_number: hole?.hole ?? '',
+          par: hole?.par ?? 0,
+          yardage: hole?.yardage ?? 0,
+
+          avg_score: hole?.total?.avg_score ?? 0,
+          birdies: hole?.total?.birdies ?? 0,
+          bogeyse: hole?.total?.bogeys ?? 0,
+          doubles_or_worse: hole?.total?.doubles_or_worse ?? 0,
+          eagles_or_better: hole?.total?.eagles_or_better ?? 0,
+          pars: hole?.total?.pars ?? 0,
+          players_thru: hole?.total?.players_thru ?? 0,
+          hole_diff: hole?.total?.avg_score - hole?.par,
+ 
+          '# Pars': hole?.total?.players_thru > 0 ? `${hole?.total?.pars }  /  ${hole?.total?.players_thru} (${((hole?.total?.pars / hole?.total?.players_thru)*100).toFixed(0)}%)` : "0 / 0 (0%)",
+          '# Birdies': hole?.total?.players_thru > 0 ? `${hole?.total?.birdies}  /  ${hole?.total?.players_thru} (${((hole?.total?.birdies / hole?.total?.players_thru)*100).toFixed(0)}%)` : "0 / 0 (0%)",
+          '# Bogeys': hole?.total?.players_thru > 0 ? `${hole?.total?.bogeys}  /  ${hole?.total?.players_thru} (${((hole?.total?.bogeys / hole?.total?.players_thru)*100).toFixed(0)}%)` : "0 / 0 (0%)",
+          '# Doubles +': hole?.total?.players_thru > 0 ? `${hole?.total?.doubles_or_worse}  /  ${hole?.total?.players_thru} (${((hole?.total?.doubles_or_worse / hole?.total?.players_thru)*100).toFixed(0)}%)` : "0 / 0 (0%)",
+          '# Eagles +': hole?.total?.players_thru > 0 ? `${hole?.total?.eagles_or_better}  /  ${hole?.total?.players_thru} (${((hole?.total?.eagles_or_better / hole?.total?.players_thru)*100).toFixed(0)}%)` : "0 / 0 (0%)",
+        })
+      })
+
+      holes.forEach((hole) => {
+        std_dataset_AM.push({
+          period: 'AM',
+          hole_round_period:  `Hole ${hole?.hole || 0} R${round.round_num ?? ''} - Morning` ,
+          event_name: data.event_name ?? '',
+          current_round: data.current_round ?? '',
+          last_updated: data.last_update,
+          course_code: course.course_code ?? '',
+          course_key: course.course_key ?? '',
+          round_num: round.round_num ?? '',        
+          hole_number: hole?.hole ?? '',
+          par: hole?.par ?? 0,
+          yardage: hole?.yardage ?? 0,
+          avg_score: hole?.morning_wave?.avg_score ?? 0,
+          birdies: hole?.morning_wave?.birdies ?? 0,
+          bogeyse: hole?.morning_wave?.bogeys ?? 0,
+          doubles_or_worse: hole?.morning_wave?.doubles_or_worse ?? 0,
+          eagles_or_better: hole?.morning_wave?.eagles_or_better ?? 0,
+          pars: hole?.morning_wave?.pars ?? 0,
+          players_thru: hole?.morning_wave?.players_thru ?? 0,
+          hole_diff: hole?.morning_wave?.avg_score - hole?.par,
+          
+          '# Pars': hole?.morning_wave?.players_thru > 0 ? `${hole?.morning_wave?.pars }  /  ${hole?.morning_wave?.players_thru} (${((hole?.morning_wave?.pars / hole?.morning_wave?.players_thru)*100).toFixed(0)}%)` : "0 / 0 (0%)",
+          '# Birdies': hole?.morning_wave?.players_thru > 0 ? `${hole?.morning_wave?.birdies}  /  ${hole?.morning_wave?.players_thru} (${((hole?.morning_wave?.birdies / hole?.morning_wave?.players_thru)*100).toFixed(0)}%)` : "0 / 0 (0%)",
+          '# Bogeys': hole?.morning_wave?.players_thru > 0 ? `${hole?.morning_wave?.bogeys}  /  ${hole?.morning_wave?.players_thru} (${((hole?.morning_wave?.bogeys / hole?.morning_wave?.players_thru)*100).toFixed(0)}%)` : "0 / 0 (0%)",
+          '# Doubles +': hole?.morning_wave?.players_thru > 0 ? `${hole?.morning_wave?.doubles_or_worse}  /  ${hole?.morning_wave?.players_thru} (${((hole?.morning_wave?.doubles_or_worse / hole?.morning_wave?.players_thru)*100).toFixed(0)}%)` : "0 / 0 (0%)",
+          '# Eagles +': hole?.morning_wave?.players_thru > 0 ? `${hole?.morning_wave?.eagles_or_better}  /  ${hole?.morning_wave?.players_thru} (${((hole?.morning_wave?.eagles_or_better / hole?.morning_wave?.players_thru)*100).toFixed(0)}%)` : "0 / 0 (0%)",
+        })
+      })
+      
+      holes.forEach((hole) => {
+        std_dataset_PM.push({
+          period: 'PM',
+          hole_round_period:  `Hole ${hole?.hole || 0} R${round.round_num ?? ''} - Afternoon` ,
+          event_name: data.event_name ?? '',
+          current_round: data.current_round ?? '',
+          last_updated: data.last_update,
+          course_code: course.course_code ?? '',
+          course_key: course.course_key ?? '',
+          round_num: round.round_num ?? '',        
+          hole_number: hole?.hole ?? '',
+          par: hole?.par ?? 0,
+          yardage: hole?.yardage ?? 0,
+          avg_score: hole?.afternoon_wave?.avg_score ?? 0,
+          birdies: hole?.afternoon_wave?.birdies ?? 0,
+          bogeyse: hole?.afternoon_wave?.bogeys ?? 0,
+          doubles_or_worse: hole?.afternoon_wave?.doubles_or_worse ?? 0,
+          eagles_or_better: hole?.afternoon_wave?.eagles_or_better ?? 0,
+          pars: hole?.afternoon_wave?.pars ?? 0,
+          players_thru: hole?.afternoon_wave?.players_thru ?? 0,
+          hole_diff: hole?.afternoon_wave?.avg_score - hole?.par,
+
+          '# Pars': hole?.afternoon_wave?.players_thru > 0 ? `${hole?.afternoon_wave?.pars }  /  ${hole?.afternoon_wave?.players_thru} (${((hole?.afternoon_wave?.pars / hole?.afternoon_wave?.players_thru)*100).toFixed(0)}%)` : "0 / 0 (0%)",
+          '# Birdies': hole?.afternoon_wave?.players_thru > 0 ? `${hole?.afternoon_wave?.birdies}  /  ${hole?.afternoon_wave?.players_thru} (${((hole?.afternoon_wave?.birdies / hole?.afternoon_wave?.players_thru)*100).toFixed(0)}%)` : "0 / 0 (0%)",
+          '# Bogeys': hole?.afternoon_wave?.players_thru > 0 ? `${hole?.afternoon_wave?.bogeys}  /  ${hole?.afternoon_wave?.players_thru} (${((hole?.afternoon_wave?.bogeys / hole?.afternoon_wave?.players_thru)*100).toFixed(0)}%)` : "0 / 0 (0%)",
+          '# Doubles +': hole?.afternoon_wave?.players_thru > 0 ? `${hole?.afternoon_wave?.doubles_or_worse}  /  ${hole?.afternoon_wave?.players_thru} (${((hole?.afternoon_wave?.doubles_or_worse / hole?.afternoon_wave?.players_thru)*100).toFixed(0)}%)` : "0 / 0 (0%)",
+          '# Eagles +': hole?.afternoon_wave?.players_thru > 0 ? `${hole?.afternoon_wave?.eagles_or_better}  /  ${hole?.afternoon_wave?.players_thru} (${((hole?.afternoon_wave?.eagles_or_better / hole?.afternoon_wave?.players_thru)*100).toFixed(0)}%)` : "0 / 0 (0%)",
+        })
+      })
+    })
+  })
+
+  final_dataset = [...std_dataset_total,...std_dataset_AM,...std_dataset_PM]
+
+  return final_dataset
+
+
+  } catch (e) {
+    console.log(`Failed to fetch DataGolf rankings: ${e.message}`);
+    return;
+  }
+
+}
+
+function approach_skill(endpoint) {
+
+  console.log("Fetching Approach Skill from:", endpoint);
+
+  let std_dataset = [];
+
+  // --- 1. Fetch Data ---
+  let data;
+  try {
+    const response = UrlFetchApp.fetch(endpoint, { muteHttpExceptions: true });
+    
+    // Explicitly check response code
+    if (response.getResponseCode() !== 200) {
+      console.warn(`Fetch skipped: Server returned status ${response.getResponseCode()}`);
+      return; // Exit gracefully
+    }
+    
+    data = JSON.parse(response.getContentText());
+
+  } catch (e) {
+    console.error(`Network or Parsing Error: ${e.message}`);
+    return;
+  }
+
+  // --- 2. Process Data ---
+  const dataset = data?.data;
+
+  dataset.forEach((item) => {
+      std_dataset.push({
+      ...item
+      });
+    });
+
+  if (std_dataset && Array.isArray(std_dataset) && std_dataset.length > 0) {
+    return std_dataset
+  } else {
+    console.warn("No data found in the API response.");
+  }
+}
+
+function pre_tour(endpoint) {
+
+  console.log('fetching endpoint: '+endpoint)
+
+  // --- 1. Fetch Data ---
+  let data;
+  const std_dataset = [];
+  try {
+    const response = UrlFetchApp.fetch(endpoint, { muteHttpExceptions: true });
+    if (response.getResponseCode() !== 200) {
+      throw new Error(`HTTP Error ${response.getResponseCode()}`);
+    }
+    data = JSON.parse(response.getContentText());
+    const dataset = data.baseline_history_fit
+    
+    dataset.forEach((item) => {
+      std_dataset.push({
+        dg_id: item?.dg_id ?? '',
+        pt_make_cut: item?.make_cut ?? '',
+        pt_top_20: item?.top_20 ?? '',
+        pt_top_10: item?.top_10 ?? '',
+        pt_top_5: item?.top_5 ?? '',
+        pt_win: item?.win ?? '',
+        pt_sample_size: item?.sample_size ?? '',
+      })
+    })
+
+  if (std_dataset && Array.isArray(std_dataset) && std_dataset.length > 0) {
+    return std_dataset
+  } else {
+    console.warn("No data found in the API response.");
+  }
+
+  } catch (e) {
+    console.log(`Failed to fetch DataGolf rankings: ${e.message}`);
+    return;
+  }
+
+}
+
+function get_adjusted_dates(field){
+
+  let start_date = new Date(field[0].start_date);
+  let end_date = new Date(field[0].end_date);
+
+  const processed_field = field.map(row => {
+  //const isPlayerLive = row.dg_id && row.dg_id !== "" && row.dg_id !== "NOT_LINKED";
+
+  return {
+    ...row,
+    r1_teetime: row.r1_teetime ?? null,
+    r2_teetime: row.r2_teetime ?? null,
+    r3_teetime: row.r3_teetime ?? null,
+    r4_teetime: row.r4_teetime ?? null,
+  };
+  });
+
+  // Now perform your min/max calculation on the PROCESSED data
+  const tee_times_flat = processed_field
+    .flatMap(row => [row.r1_teetime, row.r2_teetime, row.r3_teetime, row.r4_teetime])
+    .filter(val => val && val !== "") // This will now naturally ignore the nulls
+    .map(val => new Date(val).getTime());
+
+  const hasTeeTimes = tee_times_flat.length > 0;
+  const early_min = hasTeeTimes ? tee_times_flat.reduce((min, cur) => Math.min(min, cur), Infinity) : null;
+  const late_max = hasTeeTimes ? tee_times_flat.reduce((max, cur) => Math.max(max, cur), -Infinity) : null;
+
+  let adj_start_date, adj_end_date;
+
+  if (hasTeeTimes) {
+    const live_start = new Date(early_min);
+    const live_end = new Date(late_max) + 21600000;
+    adj_start_date = Math.abs(live_start - start_date) > 3600000 ? live_start : start_date;
+    adj_end_date = live_end > end_date ? live_end : end_date;
+  } else {
+    adj_start_date = start_date;
+    adj_end_date =  end_date;
+  }
+
+  let end_date_final = new Date(adj_end_date);
+    end_date_final.setHours(end_date_final.getHours() + 2); 
+
+  let save_flag = new Date() >= new Date(adj_start_date);
+
+  let pool_opens = new Date(adj_start_date);
+    pool_opens.setDate(pool_opens.getDate() - 3);
+    pool_opens.setHours(07,0,0,0);
+
+    let picks_due = new Date(adj_start_date);
+    let picks_due_notification = new Date(adj_start_date);
+      picks_due_notification.setDate(picks_due_notification.getDate() - 1);
+      picks_due_notification.setHours(0,0,0,0);
+
+    let updates_due = new Date(adj_start_date);
+      updates_due.setDate(updates_due.getDate() + 2);
+    let updates_due_notification = new Date(updates_due);
+      updates_due_notification.setDate(updates_due_notification.getDate() - 1);
+      updates_due_notification.setHours(0,0,0,0);
+
+    let results_notification = new Date(end_date_final);
+      results_notification.setHours(results_notification.getHours() + 1); 
+
+  return {
+    start_date : (start_date),
+    end_date : (end_date),
+    adj_start_date : (adj_start_date),
+    adj_end_date : (adj_end_date),
+    end_date_final : (end_date_final),
+    pool_opens : (pool_opens),
+    picks_due : (picks_due),
+    picks_due_notification : (picks_due_notification),
+    updates_due : (updates_due),
+    updates_due_notification : (updates_due_notification),
+    results_notification: (results_notification),
+  }
+
+
+
+
+
+}
+
+
+
