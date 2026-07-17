@@ -1,0 +1,91 @@
+function get_schedule() {
+
+  const pool_tour = getFirestoreCollection('pool_tournaments')
+
+  const referenceKeys = new Set(pool_tour.map(ref => {
+  const clean_year = String(ref.year || "").trim();
+  const clean_event_id = String(ref.event_id || "").trim();
+  const clean_tour = String(ref.tour || "").trim();
+  return `${clean_year}|${clean_event_id}|${clean_tour}`;
+}));
+
+  const api_params = {
+    file_format: 'json',
+  };
+
+  const queryParams = Object.entries(api_params)
+    .map(([key, value]) => `${key}=${value}`)
+    .join('&'); 
+    
+  // Fixed variable declaration syntax
+  const endpoint = `${SOURCEURL}${ENDPT_SCH}?${queryParams}&${API_DG}`; 
+  
+  console.log("Fetching Schedule from:", endpoint);
+
+  let std_dataset = [];
+
+  try {
+    const response = UrlFetchApp.fetch(endpoint, { muteHttpExceptions: true });
+    
+    // 1. HTTP Status Check
+    if (response.getResponseCode() !== 200) {
+      console.warn(`Fetch skipped: Status ${response.getResponseCode()}`);
+      return; 
+    }
+
+    const data = JSON.parse(response.getContentText());
+    let dataset = data?.schedule;
+
+    // 2. Validate Dataset
+    if (!dataset || !Array.isArray(dataset)) {
+      console.warn("No schedule data found in the API response.");
+      return;
+    }
+
+
+    dataset.forEach((item) => { 
+      let end_date = new Date(item.start_date);
+          end_date.setDate(end_date.getDate() + 4);
+      const year = item.start_date.split('-')[0];
+      const lookupKey = `${year}|${item.event_id}|${item.tour}`;
+      const isMatch = referenceKeys.has(lookupKey);
+
+      const winner_split = transformPlayerString(item?.winner) || {}; 
+        const winner = winner_split.player_name || 'TBD'; 
+        const dg_id = winner_split.dg_id || '';
+
+      std_dataset.push({
+        tour: item.tour,
+        season: data.season,
+        year: year,
+        country: item.country,
+        course: item.course,
+        course_key: item.course_key,
+        event_id: item.event_id,
+        event_name: item.event_name,
+        event_slug: generateEventSlug(item.event_name),
+        latitude: item.latitude,
+        location: item.location,
+        longitude: item.longitude,
+        start_date: item.start_date,
+        end_date: end_date,
+        status: item.status,
+        winner: winner,
+        dg_id: dg_id,
+        is_pool_event: isMatch,
+      });
+
+    });
+
+  std_dataset.forEach((item) => {
+      const idString = `${item.season}_${item.event_id}_${item.tour}_${item.event_slug}`
+      const collection = `tournaments`
+
+      commitToFirestore(`${collection}/${idString}`, item)
+    });
+
+  } catch (e) {
+    console.error(`Failed to fetch DataGolf schedule: ${e.message}`);
+  }
+}
+
