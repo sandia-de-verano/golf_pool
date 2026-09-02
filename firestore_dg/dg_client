@@ -1,0 +1,48 @@
+/**
+ * Resilient DataGolf API Client Service
+ * Features rate-limiting enforcement and exponential backoff retry algorithms.
+ */
+
+/**
+ * Fetch JSON payload from DataGolf endpoint with backoff protection.
+ * 
+ * @param {string} endpointUrl - Relative path and query string
+ * @returns {Object|Array} Parsed JSON response
+ */
+function fetchFromDataGolf(endpointUrl) {
+  const apiKey = getScriptProperty('DATAGOLF_API_KEY');
+  const delimiter = endpointUrl.includes('?') ? '&' : '?';
+  const fullUrl = `${CONFIG.DATAGOLF_BASE_URL}${endpointUrl}${delimiter}key=${apiKey}`;
+
+  const maxRetries = 4;
+  let attempt = 0;
+
+  while (attempt < maxRetries) {
+    try {
+      const response = UrlFetchApp.fetch(fullUrl, {
+        muteHttpExceptions: true,
+        headers: { 'Accept': 'application/json' }
+      });
+
+      const code = response.getResponseCode();
+
+      if (code === 200) {
+        return JSON.parse(response.getContentText());
+      } else if (code === 429) {
+        const backoffMs = Math.pow(2, attempt) * 1200 + Math.floor(Math.random() * 400);
+        Logger.log(`[WARN] 429 Rate Limit Hit. Waiting ${backoffMs}ms (Attempt ${attempt + 1})`);
+        Utilities.sleep(backoffMs);
+      } else {
+        throw new Error(`DataGolf HTTP ${code}: ${response.getContentText()}`);
+      }
+    } catch (err) {
+      if (attempt === maxRetries - 1) throw err;
+      Logger.log(`[WARN] Request attempt ${attempt + 1} failed: ${err.message}`);
+    }
+
+    attempt++;
+    Utilities.sleep(CONFIG.RATE_LIMIT_DELAY_MS);
+  }
+
+  throw new Error(`Failed to fetch from DataGolf after ${maxRetries} attempts.`);
+}
