@@ -1,0 +1,89 @@
+/**
+ * PHASE 2: PRE-TOURNAMENT SELECTION DATA INGESTION
+ * Writes/Updates the 'pre_data' map node in 'event_players/{player_event_key}'.
+ */
+
+/**
+ * Syncs field lists, pre-tournament probabilities, skill metrics, and DFS values.
+ * Trigger: Daily off-week/pre-event (Mon-Wed)
+ * 
+ * @param {string} season 
+ * @param {string} tour 
+ * @param {string} eventId 
+ */
+function syncPreTournamentSelectionData(season, tour, eventId) {
+  const lock = LockService.getScriptLock();
+  if (!lock.tryLock(CONFIG.SCRIPT_LOCK_TIMEOUT_MS)) return;
+
+  try {
+    const primaryEventKey = `${season}_${tour}_${eventId}`;
+
+    const predsData = fetchFromDataGolf(`/preds/pre-tournament?tour=${tour}&event_id=${eventId}&file_format=json`);
+    const skillsData = fetchFromDataGolf(`/preds/player-decompositions?tour=${tour}&event_id=${eventId}&file_format=json`);
+    const fantasyData = fetchFromDataGolf(`/preds/fantasy-projection-defaults?tour=${tour}&event_id=${eventId}&file_format=json`);
+
+    if (!predsData || !predsData.baseline) {
+      Logger.log(`[WARN] Pre-tournament baseline data unavailable for ${primaryEventKey}`);
+      return;
+    }
+
+    const skillsMap = mapSkillsData(skillsData ? skillsData.players : []);
+    const fantasyMap = mapFantasyData(fantasyData ? fantasyData.proj : []);
+    const timestampUtc = new Date().toISOString();
+
+    predsData.baseline.forEach((player) => {
+      const dgId = String(player.dg_id);
+      const playerEventKey = `${primaryEventKey}_${dgId}`;
+
+      const preDataTyped = Serializer.serializePreDataMap(player, skillsMap[dgId], fantasyMap[dgId]);
+
+      const rootFields = {
+        primary_event_key: Serializer.str(primaryEventKey),
+        dg_id: Serializer.str(dgId),
+        player_name: Serializer.str(player.player_name || ''),
+        player_name_clean: Serializer.str(formatCleanName(player.player_name)),
+        amateur: Serializer.bool(player.amateur),
+        schema_version: Serializer.int(CONFIG.SCHEMA_VERSION),
+        last_updated_utc: Serializer.str(timestampUtc)
+      };
+
+      patchFirestoreMapPath('event_players', playerEventKey, 'pre_data', preDataTyped, rootFields);
+      Utilities.sleep(35);
+    });
+
+  } catch (err) {
+    handlePipelineError('syncPreTournamentSelectionData', err);
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+function mapSkillsData(players) {
+  const map = {};
+  if (!Array.isArray(players)) return map;
+  players.forEach((p) => {
+    map[String(p.dg_id)] = {
+      driving_acc: p.driving_acc || 0.0,
+      driving_dist: p.driving_dist || 0.0,
+      sg_putt: p.sg_putt || 0.0,
+      sg_arg: p.sg_arg || 0.0,
+      sg_app: p.sg_app || 0.0,
+      sg_ott: p.sg_ott || 0.0,
+      sg_total: p.sg_total || 0.0
+    };
+  });
+  return map;
+}
+
+function mapFantasyData(proj) {
+  const map = {};
+  if (!Array.isArray(proj)) return map;
+  proj.forEach((p) => {
+    map[String(p.dg_id)] = {
+      proj_points: p.proj_points || 0.0,
+      dk_salary: p.salary_dk || 0,
+      fd_salary: p.salary_fd || 0
+    };
+  });
+  return map;
+}
