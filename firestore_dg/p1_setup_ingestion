@@ -1,0 +1,353 @@
+/**
+ * PHASE 1: TOURNAMENT SET UP & CONFIGURATION
+ * Ingests weekly schedule metadata, sets up course details, and configures pool lock/notification windows.
+ */
+
+/**
+ * Identifies tournaments for the week across configured tours and builds 'events' records.
+ * Trigger: Weekly (Monday 02:00 UTC)
+ * 
+ * @param {string} season - Current calendar year (e.g., "2026")
+ */
+function SetupWeeklyTournaments(season) {
+  const lock = LockService.getScriptLock();
+  if (!lock.tryLock(CONFIG.SCRIPT_LOCK_TIMEOUT_MS)) {
+    Logger.log('[WARN] Could not acquire lock for identifyAndSetupWeeklyTournaments.');
+    return;
+  }
+
+  try {
+    const currentSeason = season || String(new Date().getUTCFullYear());
+
+    CONFIG.SUPPORTED_TOURS.forEach((tour) => {
+      const endpoint = `/get-schedule?tour=${tour}&season=${currentSeason}&file_format=json`;
+      const response = fetchFromDataGolf(endpoint);
+
+      const schedule = Array.isArray(response) ? response : (response.schedule || []);
+      if (!schedule.length) return;
+
+      schedule.forEach((event) => {
+        if (!event.start_date) return;
+
+        const eventStartDate = new Date(event.start_date);
+        const year = event.start_date.split('-')[0] || String(new Date().getUTCFullYear());
+        
+        // Check if event start date falls inside the active week (Monday to Sunday UTC)
+          const primaryEventKey = `${year}_${tour}_${event.event_id}`;
+          const startDateUtc = eventStartDate.toISOString();
+          const endDateUtc = calculateBaseEndDateUtc(startDateUtc);
+          const scheduleDates = calculateEventScheduleDates(startDateUtc, endDateUtc, null, null);
+
+          // 1. Structure events/{primary_event_key} document payload
+          const eventFields = {
+            primary_event_key: Serializer.str(primaryEventKey),
+            year: Serializer.int(year),
+            season: Serializer.int(currentSeason),
+            tour: Serializer.str(tour),
+            event_id: Serializer.str(event.event_id),
+            event_name: Serializer.str(event.event_name || 'Unknown Event'),
+            course_name: Serializer.str(event.course || 'Unknown Course'),
+            course_key: Serializer.str(event.course_key || ''),
+            start_date_utc: Serializer.ts(startDateUtc),
+            end_date_utc: Serializer.ts(endDateUtc),
+            location: Serializer.str(event.location || ''),
+            location: Serializer.str(event.location || ''),
+            latitude: Serializer.str(event.location || ''),
+            event_status: Serializer.str(normalizeEventStatus(event.status)),
+            is_finalized: Serializer.bool(false),
+            schema_version: Serializer.int(CONFIG.SCHEMA_VERSION),
+            
+            start_date_adj_utc: Serializer.ts(scheduleDates.start_date_adj_utc),
+            end_date_adj_utc: Serializer.ts(scheduleDates.end_date_adj_utc),
+            notification_pool_opens_utc: Serializer.ts(scheduleDates.notification_pool_opens_utc),
+            notification_picks_due_utc: Serializer.ts(scheduleDates.notification_picks_due_utc),
+            notification_updates_due_utc: Serializer.ts(scheduleDates.notification_updates_due_utc),
+            notification_results_utc: Serializer.ts(scheduleDates.notification_results_utc),
+            last_updated_utc: Serializer.ts(new Date())
+          };
+
+          // 2. Upsert tournament event document
+          writeFirestoreDocument('events', primaryEventKey, eventFields);
+
+          });
+
+          Utilities.sleep(50);
+        })
+      
+
+    // 3. Update global app configuration with this week's active events
+    updateActiveEventAppConfig(activeEventsThisWeek, currentSeason);
+
+  } catch (err) {
+    handlePipelineError('identifyAndSetupWeeklyTournaments', err);
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+
+
+function identifyAndSetupWeeklyTournaments(season) {
+  const lock = LockService.getScriptLock();
+  if (!lock.tryLock(CONFIG.SCRIPT_LOCK_TIMEOUT_MS)) {
+    Logger.log('[WARN] Could not acquire lock for identifyAndSetupWeeklyTournaments.');
+    return;
+  }
+
+  try {
+    const currentSeason = season || String(new Date().getUTCFullYear());
+    const weekBounds = getCurrentWeekUtcBounds();
+    Logger.log(`[INFO] Scanning for events between ${weekBounds.startIso} and ${weekBounds.endIso}`);
+
+    const activeEventsThisWeek = [];
+
+    CONFIG.SUPPORTED_TOURS.forEach((tour) => {
+      const endpoint = `/get-schedule?tour=${tour}&season=${currentSeason}&file_format=json`;
+      const response = fetchFromDataGolf(endpoint);
+
+      const schedule = Array.isArray(response) ? response : (response.schedule || []);
+      if (!schedule.length) return;
+
+      schedule.forEach((event) => {
+        if (!event.start_date) return;
+
+        const eventStartDate = new Date(event.start_date);
+        const year = event.start_date.split('-')[0] || String(new Date().getUTCFullYear());
+        
+        // Check if event start date falls inside the active week (Monday to Sunday UTC)
+        if (eventStartDate >= weekBounds.start && eventStartDate <= weekBounds.end) {
+          const primaryEventKey = `${year}_${tour}_${event.event_id}`;
+          const startDateUtc = eventStartDate.toISOString();
+          const endDateUtc = calculateBaseEndDateUtc(startDateUtc);
+          const scheduleDates = calculateEventScheduleDates(startDateUtc, endDateUtc, null, null);
+
+          // 1. Structure events/{primary_event_key} document payload
+          const eventFields = {
+            primary_event_key: Serializer.str(primaryEventKey),
+            year: Serializer.int(year),
+            season: Serializer.int(currentSeason),
+            tour: Serializer.str(tour),
+            event_id: Serializer.str(event.event_id),
+            event_name: Serializer.str(event.event_name || 'Unknown Event'),
+            course_name: Serializer.str(event.course || 'Unknown Course'),
+            course_key: Serializer.str(event.course_key || ''),
+            start_date_utc: Serializer.ts(startDateUtc),
+            end_date_utc: Serializer.ts(endDateUtc),
+            location: Serializer.str(event.location || ''),
+            location: Serializer.str(event.location || ''),
+            latitude: Serializer.str(event.location || ''),
+            event_status: Serializer.str(normalizeEventStatus(event.status)),
+            is_finalized: Serializer.bool(false),
+            schema_version: Serializer.int(CONFIG.SCHEMA_VERSION),
+            
+            start_date_adj_utc: Serializer.ts(scheduleDates.start_date_adj_utc),
+            end_date_adj_utc: Serializer.ts(scheduleDates.end_date_adj_utc),
+            notification_pool_opens_utc: Serializer.ts(scheduleDates.notification_pool_opens_utc),
+            notification_picks_due_utc: Serializer.ts(scheduleDates.notification_picks_due_utc),
+            notification_updates_due_utc: Serializer.ts(scheduleDates.notification_updates_due_utc),
+            notification_results_utc: Serializer.ts(scheduleDates.notification_results_utc),
+            last_updated_utc: Serializer.ts(new Date())
+          };
+
+          // 2. Upsert tournament event document
+          writeFirestoreDocument('events', primaryEventKey, eventFields);
+          Logger.log(`[SETUP] Registered event: ${primaryEventKey} (${event.event_name})`);
+
+          activeEventsThisWeek.push({
+            primary_event_key: Serializer.str(primaryEventKey),
+            year: Serializer.int(year),
+            season: Serializer.int(currentSeason),
+            tour: Serializer.str(tour),
+            event_id: String(event.event_id),
+            event_name: Serializer.str(event.event_name || 'Unknown Event'),
+            start_date_utc: Serializer.ts(startDateUtc),
+            end_date_utc: Serializer.ts(endDateUtc),
+            location: Serializer.str(event.location || ''),
+            location: Serializer.str(event.location || ''),
+            latitude: Serializer.str(event.location || ''),
+            event_status: Serializer.str(normalizeEventStatus(event.status)),
+            is_finalized: Serializer.bool(false),
+            start_date_adj_utc: Serializer.ts(scheduleDates.start_date_adj_utc),
+            end_date_adj_utc: Serializer.ts(scheduleDates.end_date_adj_utc),
+            notification_pool_opens_utc: Serializer.ts(scheduleDates.notification_pool_opens_utc),
+            notification_picks_due_utc: Serializer.ts(scheduleDates.notification_picks_due_utc),
+            notification_updates_due_utc: Serializer.ts(scheduleDates.notification_updates_due_utc),
+            notification_results_utc: Serializer.ts(scheduleDates.notification_results_utc),
+            last_updated_utc: Serializer.ts(new Date())
+          });
+
+          Utilities.sleep(50);
+        }
+      });
+    });
+
+    // 3. Update global app configuration with this week's active events
+    updateActiveEventAppConfig(activeEventsThisWeek, currentSeason);
+
+  } catch (err) {
+    handlePipelineError('identifyAndSetupWeeklyTournaments', err);
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+/**
+ * Calculates default notification triggers and delay parameters.
+ */
+function calculateEventScheduleDates(startDateUtc, endDateUtc, firstScheduledTeeTime, lastScheduledTeeTime) {
+  if (!startDateUtc) {
+    return {
+      start_date_adj_utc: '', end_date_adj_utc: '',
+      notification_pool_opens_utc: '', notification_picks_due_utc: '',
+      notification_updates_due_utc: '', notification_results_utc: ''
+    };
+  }
+
+  const startDt = new Date(startDateUtc);
+  const endDt = endDateUtc ? new Date(endDateUtc) : new Date(startDt.getTime() + (3 * 24 * 60 * 60 * 1000));
+
+  const startDateAdj = firstScheduledTeeTime ? new Date(firstScheduledTeeTime) : new Date(startDt);
+  const endDateAdj = lastScheduledTeeTime ? new Date(new Date(lastScheduledTeeTime).getTime() + (4 * 60 * 60 * 1000)) : new Date(endDt);
+
+  const poolOpens = new Date(startDateAdj);
+  const dayOfWeek = poolOpens.getUTCDay();
+  const daysToPreviousMonday = (dayOfWeek + 6) % 7;
+  poolOpens.setUTCDate(poolOpens.getUTCDate() - daysToPreviousMonday);
+  poolOpens.setUTCHours(2, 0, 0, 0);
+
+  const picksDue = new Date(startDateAdj.getTime() - (24 * 60 * 60 * 1000));
+  const updatesDue = new Date(startDateAdj.getTime() + (48 * 60 * 60 * 1000));
+  const resultsUtc = new Date(endDateAdj);
+
+  return {
+    start_date_adj_utc: startDateAdj.toISOString(),
+    end_date_adj_utc: endDateAdj.toISOString(),
+    notification_pool_opens_utc: poolOpens.toISOString(),
+    notification_picks_due_utc: picksDue.toISOString(),
+    notification_updates_due_utc: updatesDue.toISOString(),
+    notification_results_utc: resultsUtc.toISOString()
+  };
+}
+
+function calculateBaseEndDateUtc(startDateIso) {
+  if (!startDateIso) return '';
+  const d = new Date(startDateIso);
+  d.setDate(d.getDate() + 3);
+  return d.toISOString();
+}
+
+/**
+ * Writes or updates the global 'app_config/active_event' document in Firestore.
+ * 
+ * @param {Array<Object>} activeEvents 
+ * @param {string} season 
+ */
+function updateActiveEventAppConfig(activeEvents, season) {
+  const primaryPgaEvent = activeEvents.find(e => e.tour === 'pga') || activeEvents[0];
+
+  const configFields = {
+    current_season: Serializer.int(season),
+    year: Serializer.int(String(new Date().getUTCFullYear())),
+    active_primary_event_key: primaryPgaEvent ? primaryPgaEvent.primary_event_key : '',
+    active_tour: primaryPgaEvent ? primaryPgaEvent.tour : 'pga',
+    active_event_id: Serializer.str(primaryPgaEvent ? primaryPgaEvent.event_id : ''),
+    active_event_name: primaryPgaEvent ? primaryPgaEvent.event_name : '',
+    weekly_active_events: {
+      arrayValue: {
+        values: activeEvents.map(e => ({
+          mapValue: {
+            fields: {
+              primary_event_key: e.primary_event_key,
+              tour: e.tour,
+              event_id: Serializer.str(e.event_id),
+              event_name: e.event_name,
+              start_date_utc: Serializer.ts(e.start_date_utc),
+              end_date_utc: Serializer.ts(e.endDateUtc),
+              location: Serializer.str(e.location || ''),
+              location: e.location || '',
+              latitude: e.location || '',
+              event_status: Serializer.str(normalizeEventStatus(e.status)),
+              is_finalized: Serializer.bool(false),
+              start_date_adj_utc: Serializer.ts(e.start_date_adj_utc),
+              end_date_adj_utc: Serializer.ts(e.end_date_adj_utc),
+              notification_pool_opens_utc: Serializer.ts(e.notification_pool_opens_utc),
+              notification_picks_due_utc: Serializer.ts(e.notification_picks_due_utc),
+              notification_updates_due_utc: Serializer.ts(e.notification_updates_due_utc),
+              notification_results_utc: Serializer.ts(e.notification_results_utc),
+            }
+          }
+        }))
+      }
+    },
+    schema_version: Serializer.int(CONFIG.SCHEMA_VERSION),
+    last_updated_utc: Serializer.ts(new Date())
+  };
+
+  writeFirestoreDocument('app_config', 'active_event', configFields);
+  Logger.log(`[CONFIG] app_config/active_event set to primary key: "${primaryPgaEvent ? primaryPgaEvent.primary_event_key : 'NONE'}"`);
+}
+
+/**
+ * Computes Monday 00:00:00 UTC through Sunday 23:59:59 UTC for the current week.
+ * 
+ * @returns {Object} Date objects and ISO strings
+ */
+function getCurrentWeekUtcBounds() {
+  const now = new Date();
+  
+  // Calculate Monday of the current week
+  const dayOfWeek = now.getUTCDay(); // 0 = Sun, 1 = Mon, ..., 6 = Sat
+  const daysToMonday = (dayOfWeek + 6) % 7;
+  
+  const monday = new Date(now);
+  monday.setUTCDate(now.getUTCDate() - daysToMonday);
+  monday.setUTCHours(0, 0, 0, 0);
+
+  // Calculate Sunday of the current week
+  const sunday = new Date(monday);
+  sunday.setUTCDate(monday.getUTCDate() + 6);
+  sunday.setUTCHours(23, 59, 59, 999);
+
+  return {
+    start: monday,
+    end: sunday,
+    startIso: monday.toISOString(),
+    endIso: sunday.toISOString()
+  };
+}
+
+
+
+
+/**
+ * Helper to fetch current active event key from Firestore 'app_config/active_event'
+ * Used by live triggers to know which event to poll.
+ * 
+ * @returns {Object} Active event config properties
+ */
+function getActiveEventConfig() {
+  const projectId = getScriptProperty('GCP_PROJECT_ID');
+  const firestoreToken = ScriptApp.getOAuthToken();
+  const url = `https://firestore.googleapis.com/v1/projects/${projectId}/databases/(default)/documents/app_config/active_event`;
+
+  const options = {
+    method: 'get',
+    headers: { Authorization: `Bearer ${firestoreToken}` },
+    muteHttpExceptions: true
+  };
+
+  const response = UrlFetchApp.fetch(url, options);
+  if (response.getResponseCode() !== 200) {
+    throw new Error(`Failed to fetch app_config/active_event: ${response.getContentText()}`);
+  }
+
+  const doc = JSON.parse(response.getContentText());
+  const fields = doc.fields || {};
+
+  return {
+    primaryEventKey: fields.active_primary_event_key ? fields.active_primary_event_key.stringValue : '',
+    tour: fields.active_tour ? fields.active_tour.stringValue : 'pga',
+    eventId: fields.active_event_id ? fields.active_event_id.stringValue : '',
+    season: fields.current_season ? fields.current_season.integerValue : new Date().getUTCFullYear()
+  };
+}
