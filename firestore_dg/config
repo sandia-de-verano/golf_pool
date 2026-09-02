@@ -1,0 +1,74 @@
+/**
+ * DataGolf Ingestion Engine - Global Configuration & Utility Mapping
+ */
+const CONFIG = {
+  DATAGOLF_BASE_URL: 'https://feeds.datagolf.com',
+  RATE_LIMIT_DELAY_MS: 1400, // ~43 req/min safety threshold (45 max)
+  SCRIPT_LOCK_TIMEOUT_MS: 55000, // 55s limit for Google Apps Script execution safety
+  SCHEMA_VERSION: 1,
+  SUPPORTED_TOURS: ['pga', 'euro', 'kft']
+};
+
+/**
+ * Retrieves environment properties or throws explicit configuration errors.
+ * 
+ * @param {string} key 
+ * @returns {string} Property Value
+ */
+function getScriptProperty(key) {
+  const val = PropertiesService.getScriptProperties().getProperty(key);
+  if (!val) {
+    throw new Error(`[CONFIG FAILURE] Missing required ScriptProperty: "${key}"`);
+  }
+  return val;
+}
+
+/**
+ * Returns current environment mode ('DEV' vs 'PROD')
+ */
+function getEnvironment() {
+  return PropertiesService.getScriptProperties().getProperty('ENV') || 'PROD';
+}
+
+/**
+ * Normalizes raw event and player status strings into unified system enums.
+ * 
+ * @param {string} statusStr 
+ * @returns {string} Enforced status enum
+ */
+function normalizeEventStatus(statusStr) {
+  if (!statusStr) return 'scheduled';
+  const s = String(statusStr).toLowerCase();
+  if (s.includes('official') || s.includes('completed') || s.includes('final')) return 'official';
+  if (s.includes('cut') && !s.includes('pre')) return 'cut_confirmed';
+  if (s.includes('in progress') || s.includes('live') || s.includes('in_progress')) return 'live';
+  return 'scheduled';
+}
+
+/**
+ * Clean name format helper (e.g., "Scheffler, Scottie" -> "Scottie Scheffler")
+ * 
+ * @param {string} rawName 
+ * @returns {string} Formatted name string
+ */
+function formatCleanName(rawName) {
+  if (!rawName) return '';
+  if (rawName.includes(',')) {
+    const parts = rawName.split(',');
+    return `${parts[1].trim()} ${parts[0].trim()}`;
+  }
+  return rawName.trim();
+}
+
+/**
+ * Extracts integer rank value from string position (e.g., "T4" -> 4, "CUT" -> 999)
+ * 
+ * @param {string|number} posStr 
+ * @returns {number} Numeric rank
+ */
+function parseEffectivePosition(posStr) {
+  if (posStr == null) return 999;
+  const cleanStr = String(posStr).replace('T', '').replace('t', '').trim();
+  const parsed = parseInt(cleanStr, 10);
+  return isNaN(parsed) ? 999 : parsed;
+}
