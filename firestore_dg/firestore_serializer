@@ -1,0 +1,185 @@
+/**
+ * Strict Typed Serialization Engine for Firestore REST Endpoints
+ * Maps JavaScript primitives to Firestore REST Value Typed Objects:
+ * { stringValue, integerValue, doubleValue, booleanValue, mapValue, timestampValue }
+ */
+
+const Serializer = {
+  /**
+   * Converts JS string to Firestore stringValue
+   */
+  str: function(val) {
+    return { stringValue: val != null ? String(val) : '' };
+  },
+
+  /**
+   * Converts JS integer/number to Firestore integerValue
+   */
+  int: function(val) {
+    const parsed = parseInt(val, 10);
+    return { integerValue: isNaN(parsed) ? 0 : parsed };
+  },
+
+  /**
+   * Converts JS float/number to Firestore doubleValue
+   */
+  dbl: function(val) {
+    const parsed = parseFloat(val);
+    return { doubleValue: isNaN(parsed) ? 0.0 : parsed };
+  },
+
+  /**
+   * Converts JS boolean to Firestore booleanValue
+   */
+  bool: function(val) {
+    return { booleanValue: Boolean(val) };
+  },
+
+  /**
+   * Converts ISO 8601 string or Date object to Firestore timestampValue
+   * Formats string to strict RFC 3339 Z-offset format required by Firestore REST API.
+   * 
+   * @param {string|Date} val 
+   * @returns {Object} { timestampValue: "YYYY-MM-DDTHH:mm:ss.sssZ" }
+   */
+  ts: function(val) {
+    if (!val) return { timestampValue: "1970-01-01T00:00:00.000Z" };
+    
+    try {
+      const d = (val instanceof Date) ? val : new Date(val);
+      if (isNaN(d.getTime())) {
+        return { timestampValue: "1970-01-01T00:00:00.000Z" };
+      }
+      return { timestampValue: d.toISOString() };
+    } catch (e) {
+      return { timestampValue: "1970-01-01T00:00:00.000Z" };
+    }
+  },
+
+  /**
+   * Serializes a round performance object into a typed mapValue
+   */
+  roundMap: function(rInfo) {
+    if (!rInfo) {
+      return {
+        mapValue: {
+          fields: {
+            course_code: this.str(''),
+            course_name: this.str(''),
+            course_num: this.int(0),
+            start_hole: this.int(1),
+            teetime: this.ts(null),
+            wave: this.str(''),
+            score: this.int(0)
+          }
+        }
+      };
+    }
+
+    return {
+      mapValue: {
+        fields: {
+          course_code: this.str(rInfo.course_code),
+          course_name: this.str(rInfo.course_name),
+          course_num: this.int(rInfo.course_num),
+          start_hole: this.int(rInfo.start_hole || 1),
+          teetime: this.ts(rInfo.teetime),
+          wave: this.str(rInfo.wave),
+          score: this.int(rInfo.score)
+        }
+      }
+    };
+  },
+
+  /**
+   * Serializes Phase 2 Pre-Tournament selection map
+   */
+  serializePreDataMap: function(player, skillStats, fantasyStats) {
+    const sk = skillStats || {};
+    const fan = fantasyStats || {};
+
+    return {
+      win_probability: this.dbl(player.win_prob),
+      top_5_probability: this.dbl(player.top_5_prob),
+      top_10_probability: this.dbl(player.top_10_prob),
+      make_cut_probability: this.dbl(player.make_cut_prob),
+      projected_points: this.dbl(fan.proj_points || player.proj_points),
+      dk_salary: this.int(fan.dk_salary),
+      fd_salary: this.int(fan.fd_salary),
+      pre_tourn_pageviews: this.int(player.pre_tourn_pageviews),
+      dg_rank: this.int(player.dg_rank),
+      owgr_rank: this.int(player.owgr_rank),
+      skill_adjustment: this.dbl(player.skill_adj),
+      course_experience_adjustment: this.dbl(player.course_exp_adj),
+      course_history_adjustment: this.dbl(player.course_hist_adj),
+      driving_acc: this.dbl(sk.driving_acc),
+      driving_dist: this.dbl(sk.driving_dist),
+      sg_putt_rating: this.dbl(sk.sg_putt),
+      sg_arg_rating: this.dbl(sk.sg_arg),
+      sg_app_rating: this.dbl(sk.sg_app),
+      sg_ott_rating: this.dbl(sk.sg_ott),
+      sg_total_rating: this.dbl(sk.sg_total)
+    };
+  },
+
+  /**
+   * Serializes Phase 3 Live Play scoring map
+   */
+  serializeLiveDataMap: function(player, currentRound) {
+    let thruVal = 0;
+    if (typeof player.thru === 'number') {
+      thruVal = player.thru;
+    } else if (String(player.thru).toUpperCase() === 'F') {
+      thruVal = 18;
+    }
+
+    return {
+      current_round: this.int(currentRound),
+      position: this.str(player.position || 'CUT'),
+      effective_position: this.int(parseEffectivePosition(player.position)),
+      score_today: this.int(player.today),
+      score_total: this.int(player.total),
+      thru: this.int(thruVal),
+      total_strokes: this.int(player.total_strokes),
+      player_status: this.str(String(player.status || 'active').toLowerCase()),
+      live_win_probability: this.dbl(player.win_prob),
+      live_cut_probability: this.dbl(player.make_cut_prob),
+      projected_earnings: this.dbl(player.proj_earnings),
+      projected_points: this.int(player.proj_points),
+      live_distance: this.dbl(player.driving_dist),
+      live_accuracy: this.dbl(player.driving_acc),
+      live_sg_app: this.dbl(player.sg_app),
+      live_sg_arg: this.dbl(player.sg_arg),
+      live_sg_ott: this.dbl(player.sg_ott),
+      live_sg_putt: this.dbl(player.sg_putt),
+      live_sg_t2g: this.dbl(player.sg_t2g),
+      live_sg_bs: this.dbl(player.sg_bs),
+      live_sg_total: this.dbl(player.sg_total),
+      live_gir: this.dbl(player.gir),
+      live_prox_fw: this.dbl(player.prox_fw),
+      live_prox_rgh: this.dbl(player.prox_rgh),
+      live_scrambling: this.dbl(player.scrambling),
+      live_great_shots: this.int(player.great_shots),
+      live_poor_shots: this.int(player.poor_shots),
+      round_1: this.roundMap(player.r1_info),
+      round_2: this.roundMap(player.r2_info),
+      round_3: this.roundMap(player.r3_info),
+      round_4: this.roundMap(player.r4_info)
+    };
+  },
+
+  /**
+   * Serializes Phase 4 Official Post-Event map
+   */
+  serializeOfficialDataMap: function(player) {
+    return {
+      event_status: this.str('official'),
+      final_position: this.str(player.fin_text || 'CUT'),
+      effective_position: this.int(parseEffectivePosition(player.fin_text)),
+      official_earnings: this.dbl(player.earnings ? parseFloat(player.earnings) : 0.0),
+      fedex_points: this.int(player.fedex_points),
+      total_strokes: this.int(player.total_strokes),
+      is_finalized: this.bool(true)
+    };
+  }
+};
