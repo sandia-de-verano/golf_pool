@@ -1,0 +1,62 @@
+/**
+ * PHASE 4: POST-TOURNAMENT DATA FINALIZATION
+ * Writes/Updates the 'official' map node in 'event_players/{player_event_key}'.
+ */
+
+/**
+ * Ingests official post-event stats, final positions, total strokes, and official payouts.
+ * Trigger: Runs post-event completion (Sunday night / Monday morning).
+ * 
+ * @param {string} season 
+ * @param {string} tour 
+ * @param {string} eventId 
+ */
+function syncPostTournamentData(season, tour, eventId) {
+  const lock = LockService.getScriptLock();
+  if (!lock.tryLock(CONFIG.SCRIPT_LOCK_TIMEOUT_MS)) return;
+
+  try {
+    const primaryEventKey = `${season}_${tour}_${eventId}`;
+    const response = fetchFromDataGolf(`/historical-raw-data/event-stats?tour=${tour}&event_id=${eventId}&year=${season}&file_format=json`);
+
+    const results = Array.isArray(response) ? response : (response.results || []);
+
+    if (!results.length) {
+      Logger.log(`[WARN] Final historical results unavailable for ${primaryEventKey}`);
+      return;
+    }
+
+    const timestampUtc = new Date().toISOString();
+
+    results.forEach((player) => {
+      const dgId = String(player.dg_id);
+      const playerEventKey = `${primaryEventKey}_${dgId}`;
+
+      const officialDataTyped = Serializer.serializeOfficialDataMap(player);
+
+      const rootFields = {
+        primary_event_key: Serializer.str(primaryEventKey),
+        dg_id: Serializer.str(dgId),
+        player_name: Serializer.str(player.player_name || ''),
+        player_name_clean: Serializer.str(formatCleanName(player.player_name)),
+        schema_version: Serializer.int(CONFIG.SCHEMA_VERSION),
+        last_updated_utc: Serializer.str(timestampUtc)
+      };
+
+      patchFirestoreMapPath('event_players', playerEventKey, 'official', officialDataTyped, rootFields);
+      Utilities.sleep(35);
+    });
+
+    // Finalize master event record
+    writeFirestoreDocument('events', primaryEventKey, {
+      event_status: Serializer.str('official'),
+      is_finalized: Serializer.bool(true),
+      last_updated_utc: Serializer.str(timestampUtc)
+    });
+
+  } catch (err) {
+    handlePipelineError('syncPostTournamentData', err);
+  } finally {
+    lock.releaseLock();
+  }
+}
