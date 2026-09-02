@@ -1,0 +1,60 @@
+/**
+ * PHASE 3: LIVE TOURNAMENT DATA INGESTION
+ * Writes/Updates the 'live' map node in 'event_players/{player_event_key}'.
+ */
+
+/**
+ * Polls live play feeds during active rounds and patches live player scoring state.
+ * Trigger: Every 1 minute during active play hours.
+ * 
+ * @param {string} season 
+ * @param {string} tour 
+ * @param {string} eventId 
+ */
+function syncLivePlayData(season, tour, eventId) {
+  const lock = LockService.getScriptLock();
+  if (!lock.tryLock(CONFIG.SCRIPT_LOCK_TIMEOUT_MS)) return;
+
+  try {
+    const primaryEventKey = `${season}_${tour}_${eventId}`;
+    const response = fetchFromDataGolf(`/preds/in-play?tour=${tour}&file_format=json`);
+
+    if (!response || !response.data) return;
+
+    const timestampUtc = new Date().toISOString();
+    const liveStatus = normalizeEventStatus(response.info ? response.info.status : 'live');
+    const currentRound = response.info ? (response.info.current_round || 1) : 1;
+
+    response.data.forEach((player) => {
+      const dgId = String(player.dg_id);
+      const playerEventKey = `${primaryEventKey}_${dgId}`;
+
+      const liveDataTyped = Serializer.serializeLiveDataMap(player, currentRound);
+
+      const rootFields = {
+        primary_event_key: Serializer.str(primaryEventKey),
+        dg_id: Serializer.str(dgId),
+        player_name: Serializer.str(player.player_name || ''),
+        player_name_clean: Serializer.str(formatCleanName(player.player_name)),
+        amateur: Serializer.bool(player.amateur),
+        schema_version: Serializer.int(CONFIG.SCHEMA_VERSION),
+        last_updated_utc: Serializer.str(timestampUtc)
+      };
+
+      patchFirestoreMapPath('event_players', playerEventKey, 'live', liveDataTyped, rootFields);
+      Utilities.sleep(30);
+    });
+
+    // Sync master status to parent event document
+    writeFirestoreDocument('events', primaryEventKey, {
+      event_status: Serializer.str(liveStatus),
+      current_round: Serializer.int(currentRound),
+      last_updated_utc: Serializer.str(timestampUtc)
+    });
+
+  } catch (err) {
+    handlePipelineError('syncLivePlayData', err);
+  } finally {
+    lock.releaseLock();
+  }
+}
